@@ -5,8 +5,9 @@ import subprocess
 import os
 import crawlui
 
-_ADB_PATH = os.path.expanduser('~') + "/Android/Sdk/platform-tools/adb"
+# os.environ["ANDROID_ADB_SERVER_PORT"] = "5554"
 _APK_DIR = os.path.dirname(os.path.abspath(__file__)) + "/apks/"
+
 
 # PyDev sets PYTHONPATH, use it
 try:
@@ -33,11 +34,16 @@ if __name__ == '__main__':
   vc = ViewClient(device, serialno, **kwargs2)
 
   # Simple setup
-  #device, serialno = ViewClient.connectToDeviceOrExit()
-  #vc = ViewClient(device, serialno)
+  # device, serialno = ViewClient.connectToDeviceOrExit()
+  # vc = ViewClient(device, serialno)
 
-  package_list = os.listdir(_APK_DIR)
-  for package in package_list:
-    app_name = package.split(".apk")[0]
-    print app_name
-    crawlui.crawl_package(_APK_DIR, app_name, vc, device)
+  # TODO (afergan): In the future we will go through all apps, but for
+  # development, we can just specify 1 app.
+  # package_list = os.listdir(_APK_DIR)
+  # for package in package_list:
+
+  # For now, just use one application.
+  package = "com.google.zagat.apk"
+  app_name = package.split(".apk")[0]
+  print app_name
+  crawlui.crawl_package(_APK_DIR, app_name, vc, device)
