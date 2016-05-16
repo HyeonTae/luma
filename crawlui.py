@@ -6,17 +6,17 @@ import os
 import time
 
 # Linux ADB path
-_ADB_PATH = os.path.expanduser('~') + '/Android/Sdk/platform-tools/adb'
+ADB_PATH = os.path.expanduser('~') + '/Android/Sdk/platform-tools/adb'
 # OS X ADB path
-#_ADB_PATH = '/usr/local/bin/adb'
+#ADB_PATH = '/usr/local/bin/adb'
 
-from subprocess import check_output
 from com.dtmilano.android.viewclient import ViewClient, ViewClient
+from subprocess import check_output
 
 
 def get_activity_name(package_name, vc):
   """Gets the current running activity of the package."""
-  proc = subprocess.Popen([_ADB_PATH, 'shell', 'dumpsys window windows '
+  proc = subprocess.Popen([ADB_PATH, 'shell', 'dumpsys window windows '
                           '| grep -E \'mCurrentFocus\''],
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
   activity_str, err = proc.communicate()
@@ -32,8 +32,8 @@ def save_screenshot(directory, activity):
         directory + '/' + activity + str(screenshot_num) + '.png'):
     screenshot_num += 1
   screenname = activity + str(screenshot_num) + '.png'
-  subprocess.call([_ADB_PATH, 'shell', 'screencap', '/sdcard/' + screenname])
-  subprocess.call([_ADB_PATH, 'pull', '/sdcard/' + screenname,
+  subprocess.call([ADB_PATH, 'shell', 'screencap', '/sdcard/' + screenname])
+  subprocess.call([ADB_PATH, 'pull', '/sdcard/' + screenname,
                   directory + '/' + screenname])
 
 def crawl_activity(package_name, vc, device):
@@ -52,19 +52,21 @@ def crawl_activity(package_name, vc, device):
       clickable_components.append(component)
 
   for c in clickable_components:
-    print 'Clickable:' + c['uniqueId'] + c['class']
-    subprocess.call([_ADB_PATH, 'shell', 'input', 'tap', str(c.getXY()[0]),
+    print 'Clickable:' + c['uniqueId'] + ' ' + c['class']
+    subprocess.call([ADB_PATH, 'shell', 'input', 'tap', str(c.getXY()[0]),
                     str(c.getXY()[1])])
     time.sleep(1)
     crawl_activity(package_name, vc, device)
 
-def crawl_package(apk_dir, package_name, vc, device):
+def crawl_package(apk_dir, package_name, vc, device, debug):
 
-  # Install the app.
-  # subprocess.call([_ADB_PATH, 'install', '-r', apk_dir + package_name + '.apk'])
+  if (not(debug)):
+    # Install the app.
+    subprocess.call([ADB_PATH, 'install', '-r', apk_dir + package_name
+      + '.apk'])
 
-  # Launch the app.
-  # subprocess.call([_ADB_PATH, 'shell', 'monkey', '-p', package_name, '-c',
-                #    'android.intent.category.LAUNCHER', '1'])
+    #Launch the app.
+    subprocess.call([ADB_PATH, 'shell', 'monkey', '-p', package_name, '-c',
+                    'android.intent.category.LAUNCHER', '1'])
 
   crawl_activity(package_name, vc, device)

@@ -6,8 +6,10 @@ import os
 import crawlui
 
 # os.environ['ANDROID_ADB_SERVER_PORT'] = '5554'
-_APK_DIR = os.path.dirname(os.path.abspath(__file__)) + '/apks/'
-
+APK_DIR = os.path.dirname(os.path.abspath(__file__)) + '/apks/'
+# Whether we should skip the install & load process and just run the program
+# on the currently loaded app.
+DEBUG = True
 
 # PyDev sets PYTHONPATH, use it
 try:
@@ -33,18 +35,15 @@ if __name__ == '__main__':
   device, serialno = ViewClient.connectToDeviceOrExit(**kwargs1)
   vc = ViewClient(device, serialno, **kwargs2)
 
-  # Simple setup
-  # device, serialno = ViewClient.connectToDeviceOrExit()
-  # vc = ViewClient(device, serialno)
-  # vc = ViewClient(*ViewClient.connectToDeviceOrExit())
-
-  # TODO (afergan): In the future we will go through all apps, but for
-  # development, we can just specify 1 app.
-  # package_list = os.listdir(_APK_DIR)
-  # for package in package_list:
-
-  # For now, just use one application.
-  package = 'com.google.zagat.apk'
-  app_name = package.split('.apk')[0]
-  print app_name
-  crawlui.crawl_package(_APK_DIR, app_name, vc, device)
+  if (not(DEBUG)):
+    package_list = os.listdir(APK_DIR)
+    for package in package_list:
+      app_name = package.split('.apk')[0]
+      print app_name
+      crawlui.crawl_package(APK_DIR, app_name, vc, device, DEBUG)
+  else:
+    # For now, just use one application.
+    package = 'com.google.zagat.apk'
+    app_name = package.split('.apk')[0]
+    print app_name
+    crawlui.crawl_package(APK_DIR, app_name, vc, device, DEBUG)
