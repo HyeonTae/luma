@@ -3,62 +3,68 @@
 import subprocess
 import sys
 import os
+import time
 
 # Linux ADB path
-_ADB_PATH = os.path.expanduser('~') + "/Android/Sdk/platform-tools/adb"
+_ADB_PATH = os.path.expanduser('~') + '/Android/Sdk/platform-tools/adb'
 # OS X ADB path
-#_ADB_PATH = "/usr/local/bin/adb"
+#_ADB_PATH = '/usr/local/bin/adb'
 
+from subprocess import check_output
 from com.dtmilano.android.viewclient import ViewClient, ViewClient
 
 
 def get_activity_name(package_name, vc):
   """Gets the current running activity of the package."""
-  # TODO(afergan): If there are multiple windows of the application open, make
-  # sure we are getting the top window.
-  windows = vc.list()
-  for wId in windows.keys():
-    if package_name in windows[wId]:
-      return windows[wId].split(".")[-1]
+  proc = subprocess.Popen([_ADB_PATH, 'shell', 'dumpsys window windows '
+                          '| grep -E \'mCurrentFocus\''],
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  activity_str, err = proc.communicate()
+  # The current focus returns a string in the format
+  # mCurrentFocus=Window{35f66c3 u0 com.google.zagat/com.google.android.apps.
+  # zagat.activities.BrowseListsActivity}
+  # We only want the text between the final period and the closing bracket.
+  return activity_str.split('.')[-1].split('}')[0]
+
+def save_screenshot(directory, activity):
+  screenshot_num = 0
+  while os.path.exists(
+        directory + '/' + activity + str(screenshot_num) + '.png'):
+    screenshot_num += 1
+  screenname = activity + str(screenshot_num) + '.png'
+  subprocess.call([_ADB_PATH, 'shell', 'screencap', '/sdcard/' + screenname])
+  subprocess.call([_ADB_PATH, 'pull', '/sdcard/' + screenname,
+                  directory + '/' + screenname])
 
 def crawl_activity(package_name, vc, device):
-
-  screenshot_num = 0
-  directory = (os.path.dirname(os.path.abspath(__file__)) + "/data/"
+  directory = (os.path.dirname(os.path.abspath(__file__)) + '/data/'
                + package_name)
   if not os.path.exists(directory):
     os.makedirs(directory)
   view = vc.dump(window='-1')
   activity = get_activity_name(package_name, vc)
-  filename = directory + "/" + activity + str(screenshot_num) + ".png"
-  # If the screenshot already exists, increment the filename.
-  while os.path.exists(filename):
-    screenshot_num += 1
-    filename = directory + "/" + activity + str(screenshot_num) + ".png"
-
-  device.takeSnapshot().save(filename, 'PNG')
-  screenshot_num += 1
-
+  save_screenshot(directory, activity)
   clickable_components = []
 
   # Print the details of every component in the view.
   for component in view:
-    # print ">>Component: ", component
     if (component.isClickable()):
       clickable_components.append(component)
 
-  # Print only the names of clickable components.
   for c in clickable_components:
-    print "Clickable: " + c['uniqueId'] + " " + c['class']
+    print 'Clickable:' + c['uniqueId'] + c['class']
+    subprocess.call([_ADB_PATH, 'shell', 'input', 'tap', str(c.getXY()[0]),
+                    str(c.getXY()[1])])
+    time.sleep(1)
+    crawl_activity(package_name, vc, device)
 
 def crawl_package(apk_dir, package_name, vc, device):
 
   # Install the app.
-  # subprocess.call([_ADB_PATH, 'install', '-r', apk_dir + package_name + ".apk"])
+  # subprocess.call([_ADB_PATH, 'install', '-r', apk_dir + package_name + '.apk'])
 
   # Launch the app.
   # subprocess.call([_ADB_PATH, 'shell', 'monkey', '-p', package_name, '-c',
                 #    'android.intent.category.LAUNCHER', '1'])
 
   crawl_activity(package_name, vc, device)
-
