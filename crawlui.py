@@ -7,12 +7,13 @@ import os
 import time
 
 # Linux ADB path
-ADB_PATH = os.path.expanduser('~') + '/Android/Sdk/platform-tools/adb'
+#ADB_PATH = os.path.expanduser('~') + '/Android/Sdk/platform-tools/adb'
 # OS X ADB path
-#ADB_PATH = '/usr/local/bin/adb'
+ADB_PATH = '/usr/local/bin/adb'
 
 from com.dtmilano.android.viewclient import ViewClient, ViewClient
 from subprocess import check_output
+from view import View
 
 
 def get_activity_name():
@@ -47,26 +48,40 @@ def save_screenshot(package_name):
   while os.path.exists(directory + '/' + activity + '-' + fragment + '-' + str(
                        screenshot_num) + '.png'):
     screenshot_num += 1
-  screenname = activity + '-' + fragment + '-' + str(screenshot_num) + '.png'
-  subprocess.call([ADB_PATH, 'shell', 'screencap', '/sdcard/' + screenname])
-  subprocess.call([ADB_PATH, 'pull', '/sdcard/' + screenname,
-                  directory + '/' + screenname])
+  screen_name = activity + '-' + fragment + '-' + str(screenshot_num) + '.png'
+  print screen_name
+  screen_path = directory + '/' + screen_name
+  print screen_path
+  subprocess.call([ADB_PATH, 'shell', 'screencap', '/sdcard/' + screen_name])
+  subprocess.call([ADB_PATH, 'pull', '/sdcard/' + screen_name, screen_path])
+
+  # Return the filename & num so that the screenshot can be accessed
+  # programatically.
+  return [screen_path, screenshot_num]
 
 def crawl_activity(package_name, vc, device):
-  view = vc.dump(window='-1')
-  save_screenshot(package_name)
+  curr_view = vc.dump(window='-1')
   clickable_components = []
 
-  # Print the details of every component in the view.
-  for component in view:
-    if (component.isClickable()):
+  for component in curr_view:
+    print component
+    if component.isClickable():
       clickable_components.append(component)
 
   for c in clickable_components:
-    print 'Clickable:' + c['uniqueId'] + ' ' + c['class']
+    print 'Clickable:' + c['uniqueId'] + ' ' + c['class'] + str(c.getXY())
     subprocess.call([ADB_PATH, 'shell', 'input', 'tap', str(c.getXY()[0]),
                     str(c.getXY()[1])])
     time.sleep(1)
+
+    # TODO (afergan): check for duplicates
+    v = View(get_activity_name(), get_fragment_name(package_name))
+    v.hierarchy = curr_view
+    screenshot_info = save_screenshot(package_name)
+    v.screenshot = screenshot_info[0]
+    v.num = screenshot_info[1]
+    v.print_info()
+
     crawl_activity(package_name, vc, device)
 
 def crawl_package(apk_dir, package_name, vc, device, debug):
