@@ -30,7 +30,7 @@ from com.dtmilano.android.viewclient import ViewClient
 if __name__ == '__main__':
 
   kwargs1 = {'verbose': True, 'ignoresecuredevice': True}
-  kwargs2 = {'startviewserver': True, 'forceviewserveruse': False,
+  kwargs2 = {'startviewserver': True, 'forceviewserveruse': True,
              'autodump': False, 'ignoreuiautomatorkilled': True}
   device, serialno = ViewClient.connectToDeviceOrExit(**kwargs1)
   vc = ViewClient(device, serialno, **kwargs2)

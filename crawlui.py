@@ -11,17 +11,32 @@ import time
 # OS X ADB path
 ADB_PATH = '/usr/local/bin/adb'
 
-from com.dtmilano.android.viewclient import ViewClient, ViewClient
+from com.dtmilano.android.viewclient import ViewClient
 from subprocess import check_output
 from view import View
 
+view_root = []
+view_array = []
+
+def perform_press_back():
+  subprocess.call([ADB_PATH, 'shell', 'input', 'keyevent', '4'])
 
 def get_activity_name():
   """Gets the current running activity of the package."""
+  # TODO(afergan): Make sure we are still running the correct package and have
+  # not exited or redirected to a different app.
+
   proc = subprocess.Popen([ADB_PATH, 'shell', 'dumpsys window windows '
                           '| grep -E \'mCurrentFocus\''],
                           stdout = subprocess.PIPE, stderr = subprocess.PIPE)
   activity_str, err = proc.communicate()
+
+  # If a popup menu has captured the focus, the focus will be in the format
+  # mCurrentFocus=Window{8f1328e u0 PopupWindow:53a5957}
+  if 'PopupWindow' in activity_str:
+    popup_str = activity_str[activity_str.find('PopupWindow'):].split('}')[0]
+    return popup_str.replace(':','')
+
   # The current focus returns a string in the format
   # mCurrentFocus=Window{35f66c3 u0 com.google.zagat/com.google.android.apps.
   # zagat.activities.BrowseListsActivity}
@@ -35,7 +50,7 @@ def get_fragment_name(package_name):
                           '\'Local FragmentActivity\''], stdout =
                           subprocess.PIPE, stderr = subprocess.PIPE)
   fragment_str, err = proc.communicate()
-  return re.search("Local FragmentActivity (.*?) State:",fragment_str).group(1)
+  return re.search('Local FragmentActivity (.*?) State:',fragment_str).group(1)
 
 def save_screenshot(package_name):
   directory = (os.path.dirname(os.path.abspath(__file__)) + '/data/'
@@ -51,7 +66,6 @@ def save_screenshot(package_name):
   screen_name = activity + '-' + fragment + '-' + str(screenshot_num) + '.png'
   print screen_name
   screen_path = directory + '/' + screen_name
-  print screen_path
   subprocess.call([ADB_PATH, 'shell', 'screencap', '/sdcard/' + screen_name])
   subprocess.call([ADB_PATH, 'pull', '/sdcard/' + screen_name, screen_path])
 
@@ -59,33 +73,58 @@ def save_screenshot(package_name):
   # programatically.
   return [screen_path, screenshot_num]
 
-def crawl_activity(package_name, vc, device):
-  curr_view = vc.dump(window='-1')
-  clickable_components = []
+def find_view_idx(package_name, vc_dump):
+  for i in range(len(view_array)):
+    if view_array[i].is_duplicate(get_activity_name(),
+                                  get_fragment_name(package_name), vc_dump):
+      return i
 
-  for component in curr_view:
-    print component
+  return -1
+
+def create_view(package_name, vc_dump):
+  v = View(get_activity_name(), get_fragment_name(package_name))
+  v.hierarchy = vc_dump
+
+  for component in v.hierarchy:
+    print component['uniqueId']
     if component.isClickable():
-      clickable_components.append(component)
+      v.clickable.append(component)
 
-  for c in clickable_components:
-    print 'Clickable:' + c['uniqueId'] + ' ' + c['class'] + str(c.getXY())
+  screenshot_info = save_screenshot(package_name)
+  v.screenshot = screenshot_info[0]
+  v.num = screenshot_info[1]
+
+  return v
+
+def crawl_activity(package_name, vc, device):
+  vc_dump = vc.dump(window='-1')
+
+  # Returning to a view that has already been seen.
+  view_idx = find_view_idx(package_name, vc_dump)
+  if view_idx >= 0:
+    print('**FOUND DUPLICATE')
+    curr_view = view_array[view_idx]
+  else:
+    print('**NEW VIEW')
+    curr_view = create_view(package_name, vc_dump)
+    view_array.append(curr_view)
+
+  if len(curr_view.clickable) > 0:
+    c = curr_view.clickable[0]
+    print 'Clickable: ' + c['uniqueId'] + ' ' + c['class'] + str(c.getXY())
     subprocess.call([ADB_PATH, 'shell', 'input', 'tap', str(c.getXY()[0]),
-                    str(c.getXY()[1])])
-    time.sleep(1)
+                   str(c.getXY()[1])])
+    # time.sleep(1)
+    print str(len(curr_view.clickable)) + ' elements left to click'
+    del curr_view.clickable[0]
 
-    # TODO (afergan): check for duplicates
-    v = View(get_activity_name(), get_fragment_name(package_name))
-    v.hierarchy = curr_view
-    screenshot_info = save_screenshot(package_name)
-    v.screenshot = screenshot_info[0]
-    v.num = screenshot_info[1]
-    v.print_info()
+  else:
+    print '!!! Clicking back button'
+    perform_press_back()
 
-    crawl_activity(package_name, vc, device)
+  crawl_activity(package_name, vc, device)
 
 def crawl_package(apk_dir, package_name, vc, device, debug):
-
   if (not(debug)):
     # Install the app.
     subprocess.call([ADB_PATH, 'install', '-r', apk_dir + package_name
@@ -94,5 +133,11 @@ def crawl_package(apk_dir, package_name, vc, device, debug):
     #Launch the app.
     subprocess.call([ADB_PATH, 'shell', 'monkey', '-p', package_name, '-c',
                     'android.intent.category.LAUNCHER', '1'])
+
+  #Store the root View
+  print 'Storing root'
+  vc_dump = vc.dump(window='-1')
+  view_root = create_view(package_name, vc_dump)
+  view_array.append(view_root)
 
   crawl_activity(package_name, vc, device)

@@ -33,7 +33,6 @@ class View:
       return False
 
     hierarchy_ids = [h['uniqueId'] for h in self.hierarchy]
-
     curr_view_ids = [cv['uniqueId'] for cv in cv_hierarchy]
 
     # Since the unique ids are hashable, this is the most efficient method to
