@@ -7,9 +7,20 @@ import os
 import time
 
 # Linux ADB path
-#ADB_PATH = os.path.expanduser('~') + '/Android/Sdk/platform-tools/adb'
+ADB_PATH = os.path.expanduser('~') + '/Android/Sdk/platform-tools/adb'
 # OS X ADB path
-ADB_PATH = '/usr/local/bin/adb'
+#ADB_PATH = '/usr/local/bin/adb'
+
+MAX_WIDTH = 1080
+# TODO(afergan): For layouts longer than the width of the screen, scroll down
+# and click on them. For now, we ignore them.
+MAX_HEIGHT = 1920
+NAVBAR_HEIGHT = 63
+
+# Visibility
+VISIBLE = 0x0
+INVISIBLE = 0x4
+GONE = 0x8
 
 from com.dtmilano.android.viewclient import ViewClient
 from subprocess import check_output
@@ -50,6 +61,10 @@ def get_fragment_name(package_name):
                           '\'Local FragmentActivity\''], stdout =
                           subprocess.PIPE, stderr = subprocess.PIPE)
   fragment_str, err = proc.communicate()
+
+  fragment_name = re.search('Local FragmentActivity (.*?) State:',fragment_str)
+  if fragment_name is None:
+    return 'NoFrag'
   return re.search('Local FragmentActivity (.*?) State:',fragment_str).group(1)
 
 def save_screenshot(package_name):
@@ -78,7 +93,6 @@ def find_view_idx(package_name, vc_dump):
     if view_array[i].is_duplicate(get_activity_name(),
                                   get_fragment_name(package_name), vc_dump):
       return i
-
   return -1
 
 def create_view(package_name, vc_dump):
@@ -86,9 +100,29 @@ def create_view(package_name, vc_dump):
   v.hierarchy = vc_dump
 
   for component in v.hierarchy:
-    print component['uniqueId']
-    if component.isClickable():
-      v.clickable.append(component)
+    # TODO(afergan): For now, only click on certain components, and allow custom
+    # components. Evaluate later if this is worth it or if we should just click
+    # on everything attributed as clickable.
+
+    # TODO(afergan): Should we include clickable ImageViews? Seems like a lot of
+    # false clicks for this so far...
+    if (component.isClickable() and component.getVisibility() == VISIBLE and
+        component.getX() >= 2 and component.getY() <= MAX_WIDTH and
+        component['layout:layout_width'] > 0 and
+        component.getY() >= (NAVBAR_HEIGHT + 2) and
+        component.getY() <= MAX_HEIGHT and
+        component['layout:layout_height'] > 0 and
+        ('Button' in component['class'] or
+        (component ['class'] ==
+        'com.android.settings.dashboard.DashboardTileView')  or
+        component['class'] == 'android.widget.ImageView' or
+        'ActionMenuItemView' in component['class'] or
+        'TextView' in component['class'] or
+        'android' not in component['class'] or
+        'Spinner' in component['class'] or
+        component.parent == 'android.widget.ListView')):
+          print component['class'] + '-- will be clicked'
+          v.clickable.append(component)
 
   screenshot_info = save_screenshot(package_name)
   v.screenshot = screenshot_info[0]
@@ -109,17 +143,22 @@ def crawl_activity(package_name, vc, device):
     curr_view = create_view(package_name, vc_dump)
     view_array.append(curr_view)
 
+  print 'Num clickable: ' + str(len(curr_view.clickable))
+
   if len(curr_view.clickable) > 0:
     c = curr_view.clickable[0]
-    print 'Clickable: ' + c['uniqueId'] + ' ' + c['class'] + str(c.getXY())
-    subprocess.call([ADB_PATH, 'shell', 'input', 'tap', str(c.getXY()[0]),
-                   str(c.getXY()[1])])
-    # time.sleep(1)
+    print c
+    print ('Clickable: ' + c['uniqueId'] + ' ' + c['class'] + ' ' +
+      str(c.getX()) + ' ' + str(c.getY()))
+    subprocess.call([ADB_PATH, 'shell', 'input', 'tap', str(c.getX()),
+                   str(c.getY())])
     print str(len(curr_view.clickable)) + ' elements left to click'
     del curr_view.clickable[0]
 
   else:
     print '!!! Clicking back button'
+    if curr_view == view_root:
+      return
     perform_press_back()
 
   crawl_activity(package_name, vc, device)
@@ -129,7 +168,6 @@ def crawl_package(apk_dir, package_name, vc, device, debug):
     # Install the app.
     subprocess.call([ADB_PATH, 'install', '-r', apk_dir + package_name
                     + '.apk'])
-
     #Launch the app.
     subprocess.call([ADB_PATH, 'shell', 'monkey', '-p', package_name, '-c',
                     'android.intent.category.LAUNCHER', '1'])
