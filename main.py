@@ -1,8 +1,9 @@
 """The main module for the APK Crawler application."""
 
-import sys
-import subprocess
 import os
+import sys
+
+from com.dtmilano.android.viewclient import ViewClient
 import crawlui
 
 # os.environ['ANDROID_ADB_SERVER_PORT'] = '5554'
@@ -14,17 +15,15 @@ DEBUG = True
 # PyDev sets PYTHONPATH, use it
 try:
   for p in os.environ['PYTHONPATH'].split(':'):
-    if not p in sys.path:
+    if p not in sys.path:
       sys.path.append(p)
-except:
-  pass
+except KeyError:
+  print 'Please set the environment variable PYTHONPATH'
 
 try:
   sys.path.append(os.path.join(os.environ['ANDROID_VIEW_CLIENT_HOME'], 'src'))
-except:
-  pass
-
-from com.dtmilano.android.viewclient import ViewClient
+except KeyError:
+  print 'Please set the environment variable ANDROID_VIEW_CLIENT_HOME'
 
 
 if __name__ == '__main__':
@@ -35,7 +34,7 @@ if __name__ == '__main__':
   device, serialno = ViewClient.connectToDeviceOrExit(**kwargs1)
   vc = ViewClient(device, serialno, **kwargs2)
 
-  if (not(DEBUG)):
+  if not DEBUG:
     package_list = os.listdir(APK_DIR)
     for package in package_list:
       app_name = package.split('.apk')[0]

@@ -1,8 +1,14 @@
+"""View class definition."""
+
 from collections import Counter
 
-class View:
-  """Base class for all views. Includes the view hierarchy, screenshot, and
-     information about clickable components and their resulting views."""
+
+class View(object):
+  """Base class for all views.
+
+  Includes the view hierarchy, screenshot, and information about clickable
+  components and their resulting views.
+  """
 
   def __init__(self, activity, fragment):
     self.activity = activity
@@ -21,10 +27,7 @@ class View:
     return len(self.hierarchy)
 
   def is_duplicate(self, cv_activity, cv_fragment, cv_hierarchy):
-    """Determine if the passed-in current view is identical to this View.
-       Right now we do it by ensuring that the activity & fragment names are
-       the same and that there is the same list of components in the view
-       hierarchies."""
+    """Determine if the passed-in current view is identical to this View."""
 
     if self.activity != cv_activity or self.fragment != cv_fragment:
       return False
@@ -42,10 +45,10 @@ class View:
 
   def print_info(self):
 
-    print "Activity: " + self.activity
-    print "Fragment: " + self.fragment
-    print "Num: " + str(self.num)
-    print "Screenshot path:" + self.screenshot
-    print "Hierarchy: "
+    print 'Activity: ' + self.activity
+    print 'Fragment: ' + self.fragment
+    print 'Num: " + str(self.num)'
+    print 'Screenshot path:' + self.screenshot
+    print 'Hierarchy: '
     for component in self.hierarchy:
       print component
