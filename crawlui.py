@@ -89,17 +89,17 @@ def save_screenshot(package_name, activity, fragment):
   return [screen_path, screenshot_num]
 
 
-def find_view_idx(package_name, vc_dump):
+def find_view_idx(vc_dump, activity, fragment):
   for i in range(len(view_array)):
-    if view_array[i].is_duplicate(get_activity_name(),
-                                  get_fragment_name(package_name), vc_dump):
+    if view_array[i].is_duplicate(activity,
+                                  fragment, vc_dump):
       return i
   return -1
 
 
 def create_view(package_name, vc_dump, activity, fragment):
   """Store the current view in the View data structure."""
-  v = View(get_activity_name(), get_fragment_name(package_name))
+  v = View(activity, fragment)
   v.hierarchy = vc_dump
 
   for component in v.hierarchy:
@@ -154,18 +154,17 @@ def crawl_package(apk_dir, package_name, vc, device, debug):
   activity = get_activity_name()
   fragment = get_fragment_name(package_name)
   global view_root
-  view_root = create_view(package_name, vc_dump, get_activity_name(),
-                          get_fragment_name(package_name))
+  view_root = create_view(package_name, vc_dump, activity,
+                          fragment)
   view_array.append(view_root)
 
   while True:
 
     if device.isKeyboardShown():
       perform_press_back()
-    activity = get_activity_name()
-    fragment = get_fragment_name(package_name)
+
     # Determine if this is a View that has already been seen.
-    view_idx = find_view_idx(package_name, vc_dump)
+    view_idx = find_view_idx(vc_dump, activity, fragment)
     if view_idx >= 0:
       print '**FOUND DUPLICATE'
       curr_view = view_array[view_idx]
@@ -193,3 +192,5 @@ def crawl_package(apk_dir, package_name, vc, device, debug):
         return
 
     vc_dump = vc.dump(window='-1')
+    activity = get_activity_name()
+    fragment = get_fragment_name(package_name)
