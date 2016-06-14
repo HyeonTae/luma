@@ -30,8 +30,8 @@ class View(object):
   def is_duplicate(self, cv_activity, cv_frag_list, cv_hierarchy):
     """Determine if the passed-in current view is identical to this View."""
 
-    # Since the fragment names are hashable, this is the most efficient method to
-    # compare two unordered lists according to
+    # Since the fragment names are hashable, this is the most efficient method
+    # to compare two unordered lists according to
     # http://stackoverflow.com/questions/7828867/how-to-efficiently-compare-two-unordered-lists-not-sets-in-python
     # We also use it below to compare hierarchy ids.
     if (self.activity != cv_activity or
