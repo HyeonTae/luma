@@ -6,6 +6,7 @@ import sys
 from com.dtmilano.android.viewclient import ViewClient
 import crawlui
 
+
 # os.environ['ANDROID_ADB_SERVER_PORT'] = '5554'
 APK_DIR = os.path.dirname(os.path.abspath(__file__)) + '/apks/'
 # Whether we should skip the install & load process and just run the program
@@ -37,12 +38,9 @@ if __name__ == '__main__':
   if not DEBUG:
     package_list = os.listdir(APK_DIR)
     for package in package_list:
-      app_name = package.split('.apk')[0]
-      print app_name
-      crawlui.crawl_package(APK_DIR, app_name, vc, device, DEBUG)
+      if '.apk' in package:
+        package_name = os.path.splitext(package)[0]
+        print package_name
+        crawlui.crawl_package(APK_DIR, vc, device, DEBUG, package_name)
   else:
-    # For now, just use one application.
-    package = 'com.google.zagat.apk'
-    app_name = package.split('.apk')[0]
-    print app_name
-    crawlui.crawl_package(APK_DIR, app_name, vc, device, DEBUG)
+    crawlui.crawl_package(APK_DIR, vc, device, DEBUG)

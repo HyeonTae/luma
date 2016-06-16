@@ -8,10 +8,8 @@ import subprocess
 
 from view import View
 
-# Linux ADB path
-ADB_PATH = os.path.expanduser('~') + '/Android/Sdk/platform-tools/adb'
-# OS X ADB path
-# ADB_PATH = '/usr/local/bin/adb'
+
+ADB_PATH = None
 
 # Nexus 6 dimensions.
 MAX_WIDTH = 1440
@@ -30,6 +28,18 @@ GONE = 0x8
 EXITED_APP = 'exited app'
 
 
+def set_adb_path():
+  """Define the ADB path based on operating system."""
+  try:
+    global ADB_PATH
+    # For machines with multiple installations of adb, use the last listed
+    # version of adb. If this doesn't work for your setup, modify to taste.
+    ADB_PATH = subprocess.check_output(['which -a adb'], shell=True).split(
+        '\n')[-2]
+  except subprocess.CalledProcessError:
+    print 'Could not find adb. Please check your PATH.'
+
+
 def perform_press_back():
   subprocess.call([ADB_PATH, 'shell', 'input', 'keyevent', '4'])
 
@@ -38,7 +48,7 @@ def get_activity_name(package_name):
   """Gets the current running activity of the package."""
   # TODO(afergan): See if we can consolidate this with get_fragment_list, but
   # still make sure that the current app has focus.
-
+  # TODO(afergan): Check for Windows compatibility.
   proc = subprocess.Popen([ADB_PATH, 'shell', 'dumpsys window windows '
                                               '| grep -E \'mCurrentFocus\''],
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -77,6 +87,22 @@ def get_frag_list(package_name):
   frag_list = re.findall(': (.*?){', frag_dump[0], re.DOTALL)
   print frag_list
   return frag_list
+
+
+def get_package_name():
+  """Get the package name of the current focused window."""
+  proc = subprocess.Popen([ADB_PATH, 'shell', 'dumpsys window windows '
+                                              '| grep -E \'mCurrentFocus\''],
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  activity_str, _ = proc.communicate()
+
+  # The current focus returns a string in the format
+  # mCurrentFocus=Window{35f66c3 u0 com.google.zagat/com.google.android.apps.
+  # zagat.activities.BrowseListsActivity}
+  # We want the text before the /
+  pkg_name = activity_str.split('/')[0].split(' ')[-1]
+  print 'Package name is ' + pkg_name
+  return pkg_name
 
 
 def save_view_data(package_name, activity, frag_list, vc_dump):
@@ -153,12 +179,15 @@ def create_view(package_name, vc_dump, activity, frag_list):
   return v
 
 
-def crawl_package(apk_dir, package_name, vc, device, debug):
+def crawl_package(apk_dir, vc, device, debug, package_name=None):
   """Main crawler loop. Evaluate views, store new views, and click on items."""
-
+  set_adb_path()
   view_root = []
   view_array = []
-  if not debug:
+
+  if debug or not package_name:  # These should be equal
+    package_name = get_package_name()
+  else:
     # Install the app.
     subprocess.call([ADB_PATH, 'install', '-r', apk_dir + package_name
                      + '.apk'])
