@@ -15,12 +15,9 @@ from view import View
 
 ADB_PATH = None
 
-# Nexus 6 dimensions.
-MAX_WIDTH = 1440
-# TODO(afergan): For layouts longer than the width of the screen, scroll down
-# and click on them. For now, we ignore them.
-MAX_HEIGHT = 2560
-NAVBAR_HEIGHT = 84
+MAX_HEIGHT = 0
+MAX_WIDTH = 0
+NAVBAR_HEIGHT = 0
 
 # Visibility
 VISIBLE = 0x0
@@ -32,16 +29,40 @@ GONE = 0x8
 EXITED_APP = 'exited app'
 
 
+def extract_between(text, sub1, sub2, nth=1):
+  """Extract a substring from text between two given substrings."""
+  # Credit to
+  # https://www.daniweb.com/programming/software-development/code/446964/extract-a-string-between-2-substrings-python-
+
+  # Prevent sub2 from being ignored if it's not there.
+  if sub2 not in text.split(sub1, nth)[-1]:
+    return None
+  return text.split(sub1, nth)[-1].split(sub2, nth)[0]
+
+
 def set_adb_path():
   """Define the ADB path based on operating system."""
   try:
     global ADB_PATH
     # For machines with multiple installations of adb, use the last listed
     # version of adb. If this doesn't work for your setup, modify to taste.
-    ADB_PATH = subprocess.check_output(['which -a adb'], shell=True).split(
-        '\n')[-2]
+    ADB_PATH = (subprocess.check_output(['which -a adb'], shell=True)
+                .split('\n')[-2])
   except subprocess.CalledProcessError:
     print 'Could not find adb. Please check your PATH.'
+
+
+def set_device_dimens(vc):
+  """Sets global variables to the dimensions of the device."""
+  global MAX_HEIGHT, MAX_WIDTH, NAVBAR_HEIGHT
+  vc_dump = vc.dump(window='-1')
+  proc = subprocess.Popen([ADB_PATH, 'shell', 'wm size'],
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  size, _ = proc.communicate()
+  MAX_HEIGHT = extract_between(size, 'x', '\r')
+  MAX_WIDTH = extract_between(size, ': ', 'x')
+  NAVBAR_HEIGHT = (vc_dump[0].getY() - int(vc_dump[0]
+                                           ['layout:getLocationOnScreen_y()']))
 
 
 def perform_press_back():
@@ -61,7 +82,7 @@ def get_activity_name(package_name):
   # If a popup menu has captured the focus, the focus will be in the format
   # mCurrentFocus=Window{8f1328e u0 PopupWindow:53a5957}
   if 'PopupWindow' in activity_str:
-    popup_str = activity_str[activity_str.find('PopupWindow'):].split('}')[0]
+    popup_str = extract_between(activity_str, 'PopupWindow', '}')
     return popup_str.replace(':', '')
 
   # We are no longer in the app.
@@ -104,7 +125,7 @@ def get_package_name():
   # mCurrentFocus=Window{35f66c3 u0 com.google.zagat/com.google.android.apps.
   # zagat.activities.BrowseListsActivity}
   # We want the text before the /
-  pkg_name = activity_str.split('/')[0].split(' ')[-1]
+  pkg_name = extract_between(activity_str, ' ', '/', -1)
   print 'Package name is ' + pkg_name
   return pkg_name
 
@@ -174,7 +195,7 @@ def create_view(package_name, vc_dump, activity, frag_list):
     if (component.isClickable() and component.getVisibility() == VISIBLE and
         component.getX() >= 0 and component.getX() <= MAX_WIDTH and
         int(component['layout:getWidth()']) > 0 and
-        component.getY() >= (NAVBAR_HEIGHT) and
+        component.getY() >= NAVBAR_HEIGHT and
         component.getY() <= MAX_HEIGHT and
         int(component['layout:getHeight()']) > 0):
       print component['class'] + '-- will be clicked'
@@ -186,6 +207,8 @@ def create_view(package_name, vc_dump, activity, frag_list):
 def crawl_package(apk_dir, vc, device, debug, package_name=None):
   """Main crawler loop. Evaluate views, store new views, and click on items."""
   set_adb_path()
+  set_device_dimens(vc)
+
   view_root = []
   view_array = []
 
