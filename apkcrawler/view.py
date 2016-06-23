@@ -15,6 +15,7 @@ class View(object):
   """
 
   def __init__(self, activity, frag_list, hierarchy, screenshot, num):
+    """Constructor for View class."""
     self.activity = activity
     self.frag_list = frag_list
     self.hierarchy = hierarchy
@@ -22,17 +23,17 @@ class View(object):
     self.num = num
     self.clickable = []
     self.preceding = []
+    self.click_dict = {}
 
   def get_name(self):
-    # Return the identifying name of the View (activity, fragment list, and
-    # number).
-    return [self.activity, self.frag_list, self.num]
+    """Returns the identifying name of the View."""
+    return self.activity + '-' + self.frag_list[0] + '-' + str(self.num)
 
   def num_components(self):
     return len(self.hierarchy)
 
   def is_duplicate(self, cv_activity, cv_frag_list, cv_hierarchy):
-    """Determine if the passed-in current view is identical to this View."""
+    """Determines if the passed-in information is identical to this View."""
 
     # Since the fragment names are hashable, this is the most efficient method
     # to compare two unordered lists according to
@@ -42,7 +43,7 @@ class View(object):
         Counter(self.frag_list) != Counter(cv_frag_list)):
       return False
 
-    if len(cv_hierarchy) != self.num_components():
+    if self.num_components() != len(cv_hierarchy):
       return False
 
     hierarchy_ids = [h['uniqueId'] for h in self.hierarchy]
@@ -50,8 +51,22 @@ class View(object):
 
     return Counter(hierarchy_ids) == Counter(curr_view_ids)
 
-  def print_info(self):
+  def is_duplicate_view(self, other_view):
+    """Determines if the passed-in View is identical to this View."""
+    if (self.activity != other_view.activity or
+        Counter(self.frag_list) != Counter(other_view.frag_list)):
+      return False
 
+    if self.num_components() != len(other_view.hierarchy):
+      return False
+
+    hierarchy_ids = [h['uniqueId'] for h in self.hierarchy]
+    other_view_ids = [ov['uniqueId'] for ov in other_view.hierarchy]
+
+    return Counter(hierarchy_ids) == Counter(other_view_ids)
+
+  def print_info(self):
+    """Prints out information about the view."""
     print 'Activity: ' + self.activity
     print 'Fragment: ' + self.frag_list
     print 'Num: " + str(self.num)'
