@@ -192,17 +192,16 @@ def save_view_data(package_name, activity, frag_list, vc_dump):
   return [screen_path, file_num]
 
 
-def save_ui_flow_relationships(package_name, view_array):
-  """Dumps to file the click dictionary and preceding Views for each View."""
+def save_ui_flow_relationships(view_to_save, package_name):
+  """Dumps to file the click dictionary and preceding Views."""
   directory = (
       os.path.dirname(os.path.abspath(__file__)) + '/data/' + package_name)
-  for v in view_array:
-    click_file = os.path.join(directory, v.get_name() + '-clicks.json')
-    click_info = {}
-    click_info['click_dict'] = v.click_dict
-    click_info['preceding'] = v.preceding
-    with open(click_file, 'w') as out_file:
-      json.dump(click_info, out_file, indent=2)
+  click_file = os.path.join(directory, view_to_save.get_name() + '-clicks.json')
+  click_info = {}
+  click_info['click_dict'] = view_to_save.click_dict
+  click_info['preceding'] = view_to_save.preceding
+  with open(click_file, 'w') as out_file:
+    json.dump(click_info, out_file, indent=2)
 
 
 def find_view_idx(activity, frag_list, vc_dump, view_array):
@@ -251,10 +250,11 @@ def link_ui_views(last_view, curr_view, last_clicked, package_name,
     print 'Lost track of last clicked!'
   view_array.append(curr_view)
   # TODO(afergan): Remove this later. For debugging, we print the clicks after
-  # each click to a new view is recorded. However, later we can just do it when
-  # we're done crawling the app.
-  save_ui_flow_relationships(package_name, view_array)
-
+  # each click to a new view is recorded. However, this results in a lot of
+  # repeated writes to the same file. In the future, we can just write each
+  # file once we're done crawling the app.
+  save_ui_flow_relationships(last_view, package_name)
+  save_ui_flow_relationships(curr_view, package_name)
 
 def get_activity_and_view(package_name, vc, view_array):
   """Extracts UI info and return the current View."""
@@ -347,5 +347,3 @@ def crawl_package(apk_dir, vc, device, debug, package_name=None):
 
     if activity == EXITED_APP:
       break
-
-  save_ui_flow_relationships(package_name, view_array)
