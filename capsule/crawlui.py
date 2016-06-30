@@ -10,8 +10,7 @@ import re
 import subprocess
 
 from view import View
-
-ADB_PATH = None
+from com.dtmilano.android.common import obtainAdbPath
 
 MAX_HEIGHT = 0
 MAX_WIDTH = 0
@@ -42,60 +41,42 @@ def extract_between(text, sub1, sub2, nth=1):
   return text.split(sub1, nth)[-1].split(sub2, nth)[0]
 
 
-def set_adb_path():
-  """Defines the ADB path based on operating system."""
-  try:
-    global ADB_PATH
-    # For machines with multiple installations of adb, use the last listed
-    # version of adb. If this doesn't work for your setup, modify to taste.
-    ADB_PATH = (
-        subprocess.check_output(['which -a adb'], shell=True).split('\n')[-2])
-  except subprocess.CalledProcessError:
-    print 'Could not find adb. Please check your PATH.'
-
-
-def set_device_dimens(vc):
+def set_device_dimens(vc, device):
   """Sets global variables to the dimensions of the device."""
   global MAX_HEIGHT, MAX_WIDTH, NAVBAR_HEIGHT
   vc_dump = vc.dump(window='-1')
   # Returns a string similar to "Physical size: 1440x2560"
-  proc = subprocess.Popen([ADB_PATH, 'shell', 'wm size'],
-                          stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE)
-  size, _ = proc.communicate()
+  size = device.shell('wm size')
   MAX_HEIGHT = extract_between(size, 'x', '\r')
   MAX_WIDTH = extract_between(size, ': ', 'x')
   NAVBAR_HEIGHT = (
       vc_dump[0].getY() - int(vc_dump[0]['layout:getLocationOnScreen_y()']))
 
 
-def perform_press_back():
-  subprocess.call([ADB_PATH, 'shell', 'input', 'keyevent', '4'])
+def perform_press_back(device):
+  device.press('KEYCODE_BACK')
 
 
-def attempt_return_to_app(package_name):
+def attempt_return_to_app(package_name, device):
   """Tries to press back a number of times to return to the app."""
 
   # Returns whether or not we were successful after NUM_PRESSES attempts.
   for _ in range(0, NUM_BACK_PRESSES):
-    perform_press_back()
-    activity = get_activity_name(package_name)
+    perform_press_back(device)
+    activity = obtain_activity_name(package_name, device)
     if activity != EXITED_APP:
       return True
 
   return False
 
 
-def get_activity_name(package_name):
+def obtain_activity_name(package_name, device):
   """Gets the current running activity of the package."""
-  # TODO(afergan): See if we can consolidate this with get_fragment_list, but
+  # TODO(afergan): See if we can consolidate this with obtain_fragment_list, but
   # still make sure that the current app has focus.
   # TODO(afergan): Check for Windows compatibility.
-  proc = subprocess.Popen([ADB_PATH, 'shell', 'dumpsys window windows '
-                           '| grep -E \'mCurrentFocus\''],
-                          stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE)
-  activity_str, _ = proc.communicate()
+  activity_str = device.shell('dumpsys window windows '
+                              '| grep -E \'mCurrentFocus\'')
 
   # If a popup menu has captured the focus, the focus will be in the format
   # mCurrentFocus=Window{8f1328e u0 PopupWindow:53a5957}
@@ -110,31 +91,24 @@ def get_activity_name(package_name):
   # mCurrentFocus=Window{35f66c3 u0 com.google.zagat/com.google.android.apps.
   # zagat.activities.BrowseListsActivity}
   # We only want the text between the final period and the closing bracket.
-  return activity_str.split('.')[-1].split('}')[0]
+  return extract_between(activity_str, '.', '}', -1)
 
 
-def get_frag_list(package_name):
+def obtain_frag_list(package_name, device):
   """Gets the list of fragments in the current view."""
-  proc = subprocess.Popen([ADB_PATH, 'shell', 'dumpsys activity', package_name],
-                          stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE)
-  adb_dump, _ = proc.communicate()
-  frag_dump = re.findall('Added Fragments:(.*?)FragmentManager', adb_dump,
+  activity_dump = device.shell('dumpsys activity ' + package_name)
+  frag_dump = re.findall('Added Fragments:(.*?)FragmentManager', activity_dump,
                          re.DOTALL)
   if not frag_dump:
     return 'NoFrag'
   frag_list = re.findall(': (.*?){', frag_dump[0], re.DOTALL)
-  print frag_list
   return frag_list
 
 
-def get_package_name():
+def obtain_package_name(device):
   """Gets the package name of the current focused window."""
-  proc = subprocess.Popen([ADB_PATH, 'shell', 'dumpsys window windows '
-                           '| grep -E \'mCurrentFocus\''],
-                          stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE)
-  activity_str, _ = proc.communicate()
+  activity_str = device.shell('dumpsys window windows '
+                              '| grep -E \'mCurrentFocus\'')
 
   # The current focus returns a string in the format
   # mCurrentFocus=Window{35f66c3 u0 com.google.zagat/com.google.android.apps.
@@ -145,7 +119,7 @@ def get_package_name():
   return pkg_name
 
 
-def save_view_data(package_name, activity, frag_list, vc_dump):
+def save_view_data(package_name, activity, frag_list, vc_dump, device):
   """Stores the view hierarchy and screenshots with unique filenames."""
   # Returns the path to the screenshot and the file number.
 
@@ -174,19 +148,19 @@ def save_view_data(package_name, activity, frag_list, vc_dump):
     dict_copy = copy.copy(component.__dict__)
     del dict_copy['device']
     if dict_copy['parent']:
-      dict_copy['parent'] = dict_copy['parent']['uniqueId']
+      dict_copy['parent'] = dict_copy['parent'].getUniqueId()
     dict_copy['children'] = []
     for child in component.__dict__['children']:
-      dict_copy['children'].append(child['uniqueId'])
-    view_info['hierarchy'][component['uniqueId']] = dict_copy
+      dict_copy['children'].append(child.getUniqueId())
+    view_info['hierarchy'][component.getUniqueId()] = dict_copy
 
   with open(dump_file, 'w') as out_file:
     json.dump(view_info, out_file, indent=2)
 
   screen_name = activity + '-' + first_frag + '-' + str(file_num) + '.png'
   screen_path = os.path.join(directory, screen_name)
-  subprocess.call([ADB_PATH, 'shell', 'screencap', '/sdcard/' + screen_name])
-  subprocess.call([ADB_PATH, 'pull', '/sdcard/' + screen_name, screen_path])
+  device.shell('screencap /sdcard/ ' + screen_name)
+  device.shell('pull /sdcard/ ' + screen_name + ' ' + screen_path)
   # Returns the filename & num so that the screenshot can be accessed
   # programatically.
   return [screen_path, file_num]
@@ -212,9 +186,10 @@ def find_view_idx(activity, frag_list, vc_dump, view_array):
   return -1
 
 
-def create_view(package_name, vc_dump, activity, frag_list):
+def create_view(package_name, vc_dump, activity, frag_list, device):
   """Stores the current view in the View data structure."""
-  screenshot_info = save_view_data(package_name, activity, frag_list, vc_dump)
+  screenshot_info = save_view_data(package_name, activity, frag_list, vc_dump,
+                                   device)
   v = View(activity, frag_list, vc_dump, screenshot_info[0], screenshot_info[1])
 
   for component in v.hierarchy:
@@ -224,10 +199,10 @@ def create_view(package_name, vc_dump, activity, frag_list):
 
     if (component.isClickable() and component.getVisibility() == VISIBLE and
         component.getX() >= 0 and component.getX() <= MAX_WIDTH and
-        int(component['layout:getWidth()']) > 0 and
+        component.getWidth() > 0 and
         component.getY() >= NAVBAR_HEIGHT and component.getY() <= MAX_HEIGHT and
-        int(component['layout:getHeight()']) > 0):
-      print component['class'] + '-- will be clicked'
+        component.getHeight() > 0):
+      print component.getClass() + '-- will be clicked'
       v.clickable.append(component)
 
   return v
@@ -256,14 +231,17 @@ def link_ui_views(last_view, curr_view, last_clicked, package_name,
   save_ui_flow_relationships(last_view, package_name)
   save_ui_flow_relationships(curr_view, package_name)
 
-def get_activity_and_view(package_name, vc, view_array):
+
+def obtain_activity_and_view(package_name, vc, view_array, device):
   """Extracts UI info and return the current View."""
 
   # Gets the current UI info. If we have seen this UI before, return the
   # existing View. If not, create a new View and save it to the view array.
 
-  activity = get_activity_name(package_name)
-  frag_list = get_frag_list(package_name)
+  activity = obtain_activity_name(package_name, device)
+  if activity == EXITED_APP:
+    return activity, {}
+  frag_list = obtain_frag_list(package_name, device)
   vc_dump = vc.dump(window='-1')
   view_idx = find_view_idx(activity, frag_list, vc_dump, view_array)
 
@@ -272,36 +250,36 @@ def get_activity_and_view(package_name, vc, view_array):
     return activity, view_array[view_idx]
   else:
     print 'New view'
-    new_view = create_view(package_name, vc_dump, activity, frag_list)
+    new_view = create_view(package_name, vc_dump, activity, frag_list, device)
     view_array.append(new_view)
     return activity, new_view
 
 
 def crawl_package(apk_dir, vc, device, debug, package_name=None):
   """Main crawler loop. Evaluates views, store new views, and click on items."""
-  set_adb_path()
-  set_device_dimens(vc)
-
+  set_device_dimens(vc, device)
   view_array = []
 
   last_clicked = ''
 
   if debug or not package_name:  # These should be equal
-    package_name = get_package_name()
+    package_name = obtain_package_name(device)
   else:
+    # Install the app. device.shell() does not support the install or launch.
+    adb_path = obtainAdbPath()
     # Install the app.
-    subprocess.call([ADB_PATH, 'install', '-r',
+    subprocess.call([adb_path, 'install', '-r',
                      apk_dir + package_name + '.apk'])
     # Launch the app.
-    subprocess.call([ADB_PATH, 'shell', 'monkey', '-p', package_name, '-c',
+    subprocess.call([adb_path, 'shell', 'monkey', '-p', package_name, '-c',
                      'android.intent.category.LAUNCHER', '1'])
 
   # Store the root View
   print 'Storing root'
   vc_dump = vc.dump(window='-1')
-  activity = get_activity_name(package_name)
-  frag_list = get_frag_list(package_name)
-  view_root = create_view(package_name, vc_dump, activity, frag_list)
+  activity = obtain_activity_name(package_name, device)
+  frag_list = obtain_frag_list(package_name, device)
+  view_root = create_view(package_name, vc_dump, activity, frag_list, device)
   view_array.append(view_root)
   curr_view = view_root
 
@@ -312,11 +290,13 @@ def crawl_package(apk_dir, vc, device, debug, package_name=None):
     # additional components, don't check if view is duplicate.
     # TODO(afergan): Is this a safe assumption?
     if device.isKeyboardShown():
-      perform_press_back()
+      perform_press_back(device)
     else:
       last_view = curr_view
-      activity, curr_view = get_activity_and_view(package_name, vc, view_array)
-      if not last_view.is_duplicate_view(curr_view):
+      activity, curr_view = obtain_activity_and_view(package_name, vc,
+                                                     view_array, device)
+      if (activity is not EXITED_APP and
+          not last_view.is_duplicate_view(curr_view)):
         print 'At a diff view!'
         link_ui_views(last_view, curr_view, last_clicked, package_name,
                       view_array)
@@ -325,25 +305,29 @@ def crawl_package(apk_dir, vc, device, debug, package_name=None):
 
     if curr_view.clickable:
       c = curr_view.clickable[-1]
-      print('Clickable: {} {}, ({},{})'.format(c['uniqueId'], c['class'],
+      print('Clickable: {} {}, ({},{})'.format(c.getUniqueId(), c.getClass(),
                                                c.getX(), c.getY()))
-      subprocess.call([ADB_PATH, 'shell', 'input', 'tap', str(c.getX()),
-                       str(c.getY())])
+      c.touch()
       print str(len(curr_view.clickable)) + ' elements left to click'
-      last_clicked = c['uniqueId']
+      last_clicked = c.getUniqueId()
       del curr_view.clickable[-1]
 
     else:
       print 'Clicking back button'
-      perform_press_back()
-      activity, curr_view = get_activity_and_view(package_name, vc, view_array)
-      if last_view.is_duplicate_view(curr_view):
+      perform_press_back(device)
+      activity, curr_view = obtain_activity_and_view(package_name, vc,
+                                                     view_array, device)
+      if activity is not EXITED_APP and last_view.is_duplicate_view(curr_view):
         # We have nothing left to click, and the back button doesn't change
         # views.
+        print 'Nothing left to click'
         break
       else:
-        link_ui_views(last_view, curr_view, 'back button', package_name,
-                      view_array)
+        if activity is not EXITED_APP:
+          link_ui_views(last_view, curr_view, 'back button', package_name,
+                        view_array)
 
     if activity == EXITED_APP:
-      break
+      if not attempt_return_to_app(package_name, device):
+        print 'Left app and could not return'
+        break
