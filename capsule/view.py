@@ -69,8 +69,8 @@ class View(object):
     """Prints out information about the view."""
     print 'Activity: ' + self.activity
     print 'Fragment: ' + self.frag_list
-    print 'Num: " + str(self.num)'
+    print 'Num: ' + str(self.num)
     print 'Screenshot path:' + self.screenshot
     print 'Hierarchy: '
     for component in self.hierarchy:
-      print component
+      print component.getUniqueId()
