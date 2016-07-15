@@ -32,24 +32,24 @@ class View(object):
   def num_components(self):
     return len(self.hierarchy)
 
-  def is_duplicate(self, cv_activity, cv_frag_list, cv_hierarchy):
+  def is_duplicate(self, activity, frag_list, hierarchy):
     """Determines if the passed-in information is identical to this View."""
 
     # Since the fragment names are hashable, this is the most efficient method
     # to compare two unordered lists according to
     # http://stackoverflow.com/questions/7828867/how-to-efficiently-compare-two-unordered-lists-not-sets-in-python
     # We also use it below to compare hierarchy ids.
-    if (self.activity != cv_activity or
-        Counter(self.frag_list) != Counter(cv_frag_list)):
+    if (self.activity != activity or
+        Counter(self.frag_list) != Counter(frag_list)):
       return False
 
-    if self.num_components() != len(cv_hierarchy):
+    if self.num_components() != len(hierarchy):
       return False
 
     hierarchy_ids = [h['uniqueId'] for h in self.hierarchy]
-    curr_view_ids = [cv['uniqueId'] for cv in cv_hierarchy]
+    view_ids = [h['uniqueId'] for h in hierarchy]
 
-    return Counter(hierarchy_ids) == Counter(curr_view_ids)
+    return Counter(hierarchy_ids) == Counter(view_ids)
 
   def is_duplicate_view(self, other_view):
     """Determines if the passed-in View is identical to this View."""

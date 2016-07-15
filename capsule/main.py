@@ -41,7 +41,7 @@ if __name__ == '__main__':
   vc = ViewClient(device, serialno, **kwargs2)
 
   if DEBUG:
-    crawlui.crawl_package(vc, device, DEBUG)
+    crawlui.crawl_package(vc, device)
   else:
     package_list = os.listdir(APK_DIR)
     for package in package_list:
@@ -61,5 +61,5 @@ if __name__ == '__main__':
       subprocess.call([ADB_PATH, 'shell', 'monkey', '-p', package_name, '-c',
                        'android.intent.category.LAUNCHER', '1'])
 
-      crawlui.crawl_package(vc, device, DEBUG, package_name)
+      crawlui.crawl_package(vc, device, package_name)
       subprocess.call([ADB_PATH, 'uninstall', package_name])

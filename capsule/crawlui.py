@@ -27,7 +27,7 @@ BACK_BUTTON = 'back button'
 # Return a unique string if the package is not the focused window. Since
 # activities cannot have spaces, we ensure that no activity will be named this.
 EXITED_APP = 'exited app'
-
+FAILED_FINDING_NAME = 'failed finding name'
 # How many times we should try pressing the back button to return to the app
 # before giving up.
 NUM_BACK_PRESSES = 3
@@ -187,12 +187,14 @@ def save_ui_flow_relationships(view_to_save, package_name):
     json.dump(click_info, out_file, indent=2)
 
 
-def find_view_idx(activity, frag_list, vc_dump, view_array):
-  """Finds the index of the current View in the view array (-1 if new View)."""
-  for i in range(len(view_array)):
-    if view_array[i].is_duplicate(activity, frag_list, vc_dump):
-      return i
-  return -1
+def find_view_in_map(activity, frag_list, vc_dump, view_map):
+  """Finds the  current View in the view array (empty if new View)."""
+  # TODO(afergan): Consider creating another map indexed by the values compared
+  # in is_duplicate so that this comparison is O(1).
+  for val in view_map.values():
+    if val.is_duplicate(activity, frag_list, vc_dump):
+      return val
+  return None
 
 
 def create_view(package_name, vc_dump, activity, frag_list):
@@ -216,66 +218,95 @@ def create_view(package_name, vc_dump, activity, frag_list):
   return v
 
 
-def link_ui_views(last_view, curr_view, last_clicked, package_name,
-                  view_array):
-  """Stores the relationship between last_view and curr_view."""
+def link_ui_views(prev_view, curr_view, prev_clicked, package_name):
+  """Stores the relationship between prev_view and curr_view."""
 
   # We store in the View information that the last view links to the current
   # view, and that the current view can be reached from the last view. We use
   # the id of the last clicked element as the dictionary key so that we know
   # which element leads from view to view.
 
-  if last_clicked:
-    print 'Last clicked: ' + last_clicked
-    last_view.click_dict[last_clicked] = curr_view.get_name()
-    curr_view.preceding.append(last_view.get_name())
+  if prev_clicked:
+    print 'Previous clicked: ' + prev_clicked
+    prev_view.click_dict[prev_clicked] = curr_view.get_name()
+    curr_view.preceding.append(prev_view.get_name())
   else:
     print 'Lost track of last clicked!'
-  view_array.append(curr_view)
+
   # TODO(afergan): Remove this later. For debugging, we print the clicks after
   # each click to a new view is recorded. However, this results in a lot of
   # repeated writes to the same file. In the future, we can just write each
   # file once we're done crawling the app.
-  save_ui_flow_relationships(last_view, package_name)
+  save_ui_flow_relationships(prev_view, package_name)
   save_ui_flow_relationships(curr_view, package_name)
 
 
-def obtain_curr_view(activity, package_name, vc_dump, view_array, device):
+def obtain_curr_view(activity, package_name, vc_dump, view_map, device):
   """Extracts UI info and return the current View."""
 
   # Gets the current UI info. If we have seen this UI before, return the
   # existing View. If not, create a new View and save it to the view array.
 
   frag_list = obtain_frag_list(package_name, device)
-  view_idx = find_view_idx(activity, frag_list, vc_dump, view_array)
+  view = find_view_in_map(activity, frag_list, vc_dump, view_map)
 
-  if view_idx >= 0:
+  if view:
     print 'Found duplicate'
-    return view_array[view_idx]
+    return view
   else:
     print 'New view'
     new_view = create_view(package_name, vc_dump, activity, frag_list)
-    view_array.append(new_view)
+    view_map[new_view.get_name()] = new_view
     return new_view
 
 
-def crawl_package(vc, device, debug, package_name=None):
+def find_component_to_lead_to_view(view1, view2):
+  """Given 2 Views, return the component of view 1 that leads to view 2."""
+
+  try:
+    return view1.click_dict.keys()[view1.click_dict.values().index(
+        view2.get_name())]
+  except ValueError:
+    print '*** Could not find a component to link to the succeeding View!'
+
+  return FAILED_FINDING_NAME
+
+
+def find_path_from_root_to_view(view, view_map, view_root):
+  """Given a View, finds the path of UI elements to that View."""
+
+  path = []
+  curr_path_view = view
+  while not curr_path_view.is_duplicate_view(view_root):
+    succeeding_view = curr_path_view
+    # TODO(afergan): Using the first element in preceding doesn't ensure
+    # shortest path. Is it worth keeping track of the depth of every View to
+    # create the shortest path?
+    curr_path_view = view_map.get(succeeding_view.preceding[0])
+    if curr_path_view is None:
+      print '*** Could not find a previous view'
+      return []
+
+    component = find_component_to_lead_to_view(curr_path_view, succeeding_view)
+
+    # TODO(afergan): This should not happen since if we store the predecessor of
+    # one View, we also store which component of the predecessor leads to that
+    # View. However, if it does, we can try exploring other preceding views. I'm
+    # leaving it as a TODO for now, because we could end up in an infinite loop,
+    # plus if it happens it means our data is corrupt anyway.
+    if component == FAILED_FINDING_NAME:
+      return []
+    else:
+      print 'Inserting ' + component + ' to path'
+      path.insert(0, (curr_path_view.get_name(), component))
+
+  return path
+
+
+def crawl_until_exit(vc, device, package_name, view_map, view_root):
   """Main crawler loop. Evaluates views, store new views, and click on items."""
-  set_device_dimens(vc, device)
-  view_array = []
 
-  last_clicked = ''
-  if debug or not package_name:  # These should be equal
-    package_name = obtain_package_name(device)
-
-  # Store the root View
-  print 'Storing root'
-  vc_dump = vc.dump(window='-1')
-  activity = obtain_activity_name(package_name, device)
-  view_root = obtain_curr_view(activity, package_name, vc_dump, view_array,
-                               device)
   curr_view = view_root
-
   while True:
 
     # If last click opened the keyboard, assume we're in the same view and just
@@ -293,17 +324,19 @@ def crawl_package(vc, device, debug, package_name=None):
         print 'Current view is not app and we cannot return'
         break
       else:
-        last_clicked = BACK_BUTTON
+        prev_clicked = BACK_BUTTON
 
-    last_view = curr_view
-    vc_dump = vc.dump(window='-1')
-    curr_view = obtain_curr_view(activity, package_name, vc_dump, view_array,
+    prev_view = curr_view
+    try:
+      vc_dump = vc.dump(window='-1')
+    except IOError:
+      print ('*** Socket timeout!')
+    curr_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
                                  device)
     print 'Curr view: ' + curr_view.get_name()
-    if not last_view.is_duplicate_view(curr_view):
+    if not prev_view.is_duplicate_view(curr_view):
       print 'At a diff view!'
-      link_ui_views(last_view, curr_view, last_clicked, package_name,
-                    view_array)
+      link_ui_views(prev_view, curr_view, prev_clicked, package_name)
 
     print 'Num clickable: ' + str(len(curr_view.clickable))
 
@@ -312,14 +345,14 @@ def crawl_package(vc, device, debug, package_name=None):
       print('Clicking {} {}, ({},{})'.format(c.getUniqueId(), c.getClass(),
                                              c.getX(), c.getY()))
       c.touch()
-      last_clicked = c.getUniqueId()
+      prev_clicked = c.getUniqueId()
       del curr_view.clickable[-1]
 
     else:
       print 'Clicking back button'
       perform_press_back(device)
-      last_view = curr_view
-      last_clicked = BACK_BUTTON
+      prev_view = curr_view
+      prev_clicked = BACK_BUTTON
       activity = obtain_activity_name(package_name, device)
 
       if activity is EXITED_APP:
@@ -331,12 +364,37 @@ def crawl_package(vc, device, debug, package_name=None):
       # Make sure we have changed views.
       vc_dump = vc.dump(window='-1')
       curr_view = obtain_curr_view(activity, package_name, vc_dump,
-                                   view_array, device)
-      if last_view.is_duplicate_view(curr_view):
+                                   view_map, device)
+      if prev_view.is_duplicate_view(curr_view):
         # We have nothing left to click, and the back button doesn't change
         # views.
         print 'Pressing back keeps at the current view'
         break
       else:
-        link_ui_views(last_view, curr_view, 'back button', package_name,
-                      view_array)
+        link_ui_views(prev_view, curr_view, 'back button', package_name)
+
+
+def crawl_package(vc, device, package_name=None):
+  """Crawl entire package. Explore blindly, then return to unexplored views."""
+
+  set_device_dimens(vc, device)
+  view_map = {}
+
+  if not package_name:
+    package_name = obtain_package_name(device)
+
+  # Store the root View
+  print 'Storing root'
+  vc_dump = vc.dump(window='-1')
+  activity = obtain_activity_name(package_name, device)
+  view_root = obtain_curr_view(activity, package_name, vc_dump, view_map,
+                               device)
+  crawl_until_exit(vc, device, package_name, view_map, view_root)
+
+  print 'Root is ' + view_root.get_name()
+
+  for v in view_map.values():
+    if v is not view_root:
+      print 'The path from root to ' + v.get_name() + ' is ' + ' -> '.join(
+          ', '.join(p)
+          for p in find_path_from_root_to_view(v, view_map, view_root))
