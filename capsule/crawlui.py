@@ -31,6 +31,9 @@ FAILED_FINDING_NAME = 'failed finding name'
 # How many times we should try pressing the back button to return to the app
 # before giving up.
 NUM_BACK_PRESSES = 3
+# Number of dumps we'll try in a row before succumbing to socket timeouts and
+# giving up.
+MAX_DUMPS = 6
 
 
 def extract_between(text, sub1, sub2, nth=1):
@@ -47,17 +50,30 @@ def extract_between(text, sub1, sub2, nth=1):
 def set_device_dimens(vc, device):
   """Sets global variables to the dimensions of the device."""
   global MAX_HEIGHT, MAX_WIDTH, NAVBAR_HEIGHT
-  vc_dump = vc.dump(window='-1')
+
   # Returns a string similar to "Physical size: 1440x2560"
   size = device.shell('wm size')
   MAX_HEIGHT = int(extract_between(size, 'x', '\r'))
   MAX_WIDTH = int(extract_between(size, ': ', 'x'))
-  NAVBAR_HEIGHT = (
-      vc_dump[0].getY() - int(vc_dump[0]['layout:getLocationOnScreen_y()']))
+  vc_dump = perform_vc_dump(vc)
+  if vc_dump:
+    NAVBAR_HEIGHT = (
+        vc_dump[0].getY() - int(vc_dump[0]['layout:getLocationOnScreen_y()']))
+  else:
+    # Keep navbar at default 0 height.
+    print 'Cannot get navbar height.'
 
 
 def perform_press_back(device):
   device.press('KEYCODE_BACK')
+
+
+def perform_vc_dump(vc):
+  try:
+    return vc.dump(window='-1')
+  except IOError:
+    print '*** Socket timeout!'
+    return None
 
 
 def return_to_app_activity(package_name, device):
@@ -327,51 +343,60 @@ def crawl_until_exit(vc, device, package_name, view_map, view_root):
         prev_clicked = BACK_BUTTON
 
     prev_view = curr_view
-    try:
-      vc_dump = vc.dump(window='-1')
-    except IOError:
-      print ('*** Socket timeout!')
-    curr_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
-                                 device)
-    print 'Curr view: ' + curr_view.get_name()
-    if not prev_view.is_duplicate_view(curr_view):
-      print 'At a diff view!'
-      link_ui_views(prev_view, curr_view, prev_clicked, package_name)
+    vc_dump = perform_vc_dump(vc)
+    if vc_dump:
+      curr_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
+                                   device)
+      print 'Curr view: ' + curr_view.get_name()
+      if not prev_view.is_duplicate_view(curr_view):
+        print 'At a diff view!'
+        link_ui_views(prev_view, curr_view, prev_clicked, package_name)
 
-    print 'Num clickable: ' + str(len(curr_view.clickable))
+      print 'Num clickable: ' + str(len(curr_view.clickable))
 
-    if curr_view.clickable:
-      c = curr_view.clickable[-1]
-      print('Clicking {} {}, ({},{})'.format(c.getUniqueId(), c.getClass(),
-                                             c.getX(), c.getY()))
-      c.touch()
-      prev_clicked = c.getUniqueId()
-      del curr_view.clickable[-1]
+      if curr_view.clickable:
+        c = curr_view.clickable[-1]
+        print('Clicking {} {}, ({},{})'.format(c.getUniqueId(), c.getClass(),
+                                               c.getX(), c.getY()))
+        c.touch()
+        prev_clicked = c.getUniqueId()
+        del curr_view.clickable[-1]
 
-    else:
-      print 'Clicking back button'
-      perform_press_back(device)
-      prev_view = curr_view
-      prev_clicked = BACK_BUTTON
-      activity = obtain_activity_name(package_name, device)
-
-      if activity is EXITED_APP:
-        activity = return_to_app_activity(package_name, device)
-        if activity is EXITED_APP:
-          print 'Clicking back took us out of the app'
-          break
-
-      # Make sure we have changed views.
-      vc_dump = vc.dump(window='-1')
-      curr_view = obtain_curr_view(activity, package_name, vc_dump,
-                                   view_map, device)
-      if prev_view.is_duplicate_view(curr_view):
-        # We have nothing left to click, and the back button doesn't change
-        # views.
-        print 'Pressing back keeps at the current view'
-        break
       else:
-        link_ui_views(prev_view, curr_view, 'back button', package_name)
+        print 'Clicking back button'
+        perform_press_back(device)
+        prev_view = curr_view
+        prev_clicked = BACK_BUTTON
+
+        # Make sure we have changed views.
+        vc_dump = perform_vc_dump(vc)
+        num_dumps = 0
+        while not vc_dump and num_dumps < MAX_DUMPS:
+          perform_press_back(device)
+          vc_dump = perform_vc_dump(vc)
+          num_dumps += 1
+
+        if num_dumps == MAX_DUMPS:
+          return
+
+        activity = obtain_activity_name(package_name, device)
+        if activity is EXITED_APP:
+          activity = return_to_app_activity(package_name, device)
+          if activity is EXITED_APP:
+            print 'Clicking back took us out of the app'
+            return
+
+        curr_view = obtain_curr_view(activity, package_name, vc_dump,
+                                     view_map, device)
+        if prev_view.is_duplicate_view(curr_view):
+          # We have nothing left to click, and the back button doesn't change
+          # views.
+          print 'Pressing back keeps at the current view'
+          return
+        else:
+          link_ui_views(prev_view, curr_view, 'back button', package_name)
+    else:
+      perform_press_back(device)
 
 
 def crawl_package(vc, device, package_name=None):
@@ -385,7 +410,9 @@ def crawl_package(vc, device, package_name=None):
 
   # Store the root View
   print 'Storing root'
-  vc_dump = vc.dump(window='-1')
+  vc_dump = perform_vc_dump(vc)
+  if not vc_dump:
+    return
   activity = obtain_activity_name(package_name, device)
   view_root = obtain_curr_view(activity, package_name, vc_dump, view_map,
                                device)
