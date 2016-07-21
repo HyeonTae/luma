@@ -27,7 +27,11 @@ class View(object):
 
   def get_name(self):
     """Returns the identifying name of the View."""
-    return self.activity + '-' + self.frag_list[0] + '-' + str(self.num)
+    try:
+      return self.activity + '-' + self.frag_list[0] + '-' + str(self.num)
+    except TypeError:
+      print 'Not a valid view.'
+      return ''
 
   def num_components(self):
     return len(self.hierarchy)

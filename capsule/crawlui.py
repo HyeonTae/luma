@@ -3,6 +3,7 @@
 # license that can be found in the LICENSE file.
 """A module for installing and crawling the UI of Android application."""
 
+from collections import Counter
 import copy
 import json
 import os
@@ -126,7 +127,7 @@ def obtain_frag_list(package_name, device):
     frag_list = re.findall(': (.*?){', frag_dump[0], re.DOTALL)
     return frag_list
 
-  return 'NoFrag'
+  return None
 
 
 def obtain_package_name(device):
@@ -143,11 +144,22 @@ def obtain_package_name(device):
   return pkg_name
 
 
+def is_active_view(stored_view, package_name, device):
+  """Check if the current View name matches a stored View."""
+  return (obtain_activity_name(package_name, device) == stored_view.activity
+          and Counter(obtain_frag_list(package_name, device)) ==
+          Counter(stored_view.frag_list))
+
+
 def save_view_data(package_name, activity, frag_list, vc_dump):
   """Stores the view hierarchy and screenshots with unique filenames."""
   # Returns the path to the screenshot and the file number.
 
-  first_frag = frag_list[0]
+  if frag_list:
+    first_frag = frag_list[0]
+  else:
+    first_frag = 'NoFrags'
+
   directory = (
       os.path.dirname(os.path.abspath(__file__)) + '/data/' + package_name)
   if not os.path.exists(directory):
@@ -215,8 +227,8 @@ def find_view_in_map(activity, frag_list, vc_dump, view_map):
 
 def create_view(package_name, vc_dump, activity, frag_list):
   """Stores the current view in the View data structure."""
-  screenshot_info = save_view_data(package_name, activity, frag_list, vc_dump)
-  v = View(activity, frag_list, vc_dump, screenshot_info[0], screenshot_info[1])
+  save_info = save_view_data(package_name, activity, frag_list, vc_dump)
+  v = View(activity, frag_list, vc_dump, save_info[0], save_info[1])
 
   for component in v.hierarchy:
     # TODO(afergan): For now, only click on certain components, and allow custom
@@ -257,7 +269,8 @@ def link_ui_views(prev_view, curr_view, prev_clicked, package_name):
   save_ui_flow_relationships(curr_view, package_name)
 
 
-def obtain_curr_view(activity, package_name, vc_dump, view_map, device):
+def obtain_curr_view(activity, package_name, vc_dump, view_map, still_exploring,
+                     device):
   """Extracts UI info and return the current View."""
 
   # Gets the current UI info. If we have seen this UI before, return the
@@ -273,6 +286,10 @@ def obtain_curr_view(activity, package_name, vc_dump, view_map, device):
     print 'New view'
     new_view = create_view(package_name, vc_dump, activity, frag_list)
     view_map[new_view.get_name()] = new_view
+    if new_view.clickable:
+      still_exploring[new_view.get_name()] = new_view
+      print ('Added ' + new_view.get_name() + ' to still_exploring. Length is '
+             'now ' + str(len(still_exploring)))
     return new_view
 
 
@@ -288,41 +305,97 @@ def find_component_to_lead_to_view(view1, view2):
   return FAILED_FINDING_NAME
 
 
-def find_path_from_root_to_view(view, view_map, view_root):
+def find_path_from_root_to_view(view, view_map):
   """Given a View, finds the path of UI elements to that View."""
 
   path = []
   curr_path_view = view
-  while not curr_path_view.is_duplicate_view(view_root):
+  # If there is a splash screen or intro screen that is stored, we could have
+  # multiple Views that do not have preceding Views.
+
+  while curr_path_view.preceding:
+    print 'Looking for path from ' + view.get_name()
+    path_views = [p[0] for p in path]
     succeeding_view = curr_path_view
     # TODO(afergan): Using the first element in preceding doesn't ensure
     # shortest path. Is it worth keeping track of the depth of every View to
     # create the shortest path?
-    curr_path_view = view_map.get(succeeding_view.preceding[0])
-    if curr_path_view is None:
-      print '*** Could not find a previous view'
-      return []
+    curr_path_view = None
+    for pre in succeeding_view.preceding:
+      if pre not in path_views:
+        curr_path_view = view_map.get(pre)
+        break
+      else:
+        return path
 
     component = find_component_to_lead_to_view(curr_path_view, succeeding_view)
 
-    # TODO(afergan): This should not happen since if we store the predecessor of
-    # one View, we also store which component of the predecessor leads to that
-    # View. However, if it does, we can try exploring other preceding views. I'm
-    # leaving it as a TODO for now, because we could end up in an infinite loop,
-    # plus if it happens it means our data is corrupt anyway.
+    # This should not happen since if we store the predecessor of one View, we
+    # also store which component of the predecessor leads to that View. However,
+    # if it does, we can try exploring other preceding views
     if component == FAILED_FINDING_NAME:
       return []
     else:
-      print 'Inserting ' + component + ' to path'
+      print ('Inserting ' + component + ', ' + curr_path_view.get_name()
+             + ' to path')
       path.insert(0, (curr_path_view.get_name(), component))
 
   return path
 
 
-def crawl_until_exit(vc, device, package_name, view_map, view_root):
+def follow_path_to_view(path, goal, package_name, device, view_map,
+                        still_exploring, vc):
+  """Attempt to follow path all the way to the desired view."""
+  if not path:
+    return is_active_view(view_map.values()[0], package_name, device)
+
+  for p in path:
+    # We can be lenient here and only evaluate if the activity and fragments are
+    # the same (and allow the view hierarchy to have changed a little bit),
+    # since we then evaluate if the clickable component we want is in the View.
+    if not is_active_view(view_map.get(p[0]), package_name, device):
+      print 'Toto, I\'ve a feeling we\'re not on the right path anymore.'
+      p_idx = path.index(p)
+      if p_idx > 0:
+        activity = obtain_activity_name(package_name, device)
+
+        if activity is EXITED_APP:
+          return False
+        vc_dump = vc.dump(window='-1')
+        curr_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
+                                     still_exploring, device)
+        prev_view = view_map.get(path[p_idx - 1][0])
+        prev_clicked = view_map.get(path[p_idx - 1][1])
+        link_ui_views(prev_view, curr_view, prev_clicked, package_name)
+
+      return False
+
+    click_id = p[1]
+    if click_id == BACK_BUTTON:
+      perform_press_back(device)
+    else:
+      vc_dump = perform_vc_dump(vc)
+      click_target = next((component for component in vc_dump
+                           if component.getUniqueId() == click_id), None)
+
+      if click_target:
+        print 'Clicking on ' + click_target.getUniqueId()
+        click_target.touch()
+      else:
+        print ('Could not find the right component to click on, was looking '
+               'for ' + click_id)
+        return False
+
+  # Make sure that we end up at the View that we want.
+  return is_active_view(goal, package_name, device)
+
+
+def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
+                     start_view):
   """Main crawler loop. Evaluates views, store new views, and click on items."""
 
-  curr_view = view_root
+  curr_view = start_view
+  prev_clicked = ''
   while True:
 
     # If last click opened the keyboard, assume we're in the same view and just
@@ -346,7 +419,7 @@ def crawl_until_exit(vc, device, package_name, view_map, view_root):
     vc_dump = perform_vc_dump(vc)
     if vc_dump:
       curr_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
-                                   device)
+                                   still_exploring, device)
       print 'Curr view: ' + curr_view.get_name()
       if not prev_view.is_duplicate_view(curr_view):
         print 'At a diff view!'
@@ -363,6 +436,8 @@ def crawl_until_exit(vc, device, package_name, view_map, view_root):
         del curr_view.clickable[-1]
 
       else:
+        print 'Removing ' + curr_view.get_name() + ' from still_exploring.'
+        still_exploring.pop(curr_view.get_name(), 0)
         print 'Clicking back button'
         perform_press_back(device)
         prev_view = curr_view
@@ -387,7 +462,7 @@ def crawl_until_exit(vc, device, package_name, view_map, view_root):
             return
 
         curr_view = obtain_curr_view(activity, package_name, vc_dump,
-                                     view_map, device)
+                                     view_map, still_exploring, device)
         if prev_view.is_duplicate_view(curr_view):
           # We have nothing left to click, and the back button doesn't change
           # views.
@@ -403,7 +478,11 @@ def crawl_package(vc, device, package_name=None):
   """Crawl entire package. Explore blindly, then return to unexplored views."""
 
   set_device_dimens(vc, device)
+  # View map stores all Views that we have seen, while the still_exploring
+  # consists of only Views that have not been exhaustively explored yet (or
+  # found to be unreachable.)
   view_map = {}
+  still_exploring = {}
 
   if not package_name:
     package_name = obtain_package_name(device)
@@ -414,14 +493,56 @@ def crawl_package(vc, device, package_name=None):
   if not vc_dump:
     return
   activity = obtain_activity_name(package_name, device)
-  view_root = obtain_curr_view(activity, package_name, vc_dump, view_map,
-                               device)
-  crawl_until_exit(vc, device, package_name, view_map, view_root)
+  root_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
+                               still_exploring, device)
+  crawl_until_exit(vc, device, package_name, view_map, still_exploring,
+                   root_view)
 
-  print 'Root is ' + view_root.get_name()
+  print 'Root is ' + root_view.get_name()
+  print 'We have seen ' + str(len(view_map)) + ' unique views.'
 
-  for v in view_map.values():
-    if v is not view_root:
-      print 'The path from root to ' + v.get_name() + ' is ' + ' -> '.join(
-          ', '.join(p)
-          for p in find_path_from_root_to_view(v, view_map, view_root))
+  # Recrawl Views that aren't completely explored.
+  while still_exploring:
+    print 'We still have ' + str(len(still_exploring)) + ' views to explore.'
+    print 'Still need to explore: ' + str(still_exploring.keys())
+    v = still_exploring.values()[0]
+    print 'Now trying to explore ' v.get_name()
+    path = find_path_from_root_to_view(v, view_map)
+    print 'Route from root to ' + v.get_name()
+    if path:
+      for p in path:
+        print p[0] + ' ' + p[1]
+    else:
+      print 'No path to ' + v.get_name()
+    # Restart the app with its initial screen.
+    subprocess.call([ADB_PATH, 'shell', 'am force-stop', package_name])
+    subprocess.call([ADB_PATH, 'shell', 'monkey', '-p', package_name, '-c',
+                     'android.intent.category.LAUNCHER', '1'])
+    time.sleep(5)
+    reached_view = follow_path_to_view(path, v, package_name, device,
+                                       view_map, still_exploring, vc)
+    vc_dump = perform_vc_dump(vc)
+    activity = obtain_activity_name(package_name, device)
+    if activity == EXITED_APP:
+      break
+    curr_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
+                                 still_exploring, device)
+    print 'Wanted ' + v.get_name() + ', at ' + curr_view.get_name()
+
+    if reached_view:
+      print 'Reached the view we were looking for.'
+    else:
+      print ('Did not reach intended view, removing ' + v.get_name() +
+             ' from still_exploring.')
+      still_exploring.pop(v.get_name(), 0)
+
+    if curr_view.clickable:
+      # If we made it to our intended View, or at least a View with
+      # unexplored components, start crawling again.
+      print 'Crawling again'
+      crawl_until_exit(vc, device, package_name, view_map, still_exploring,
+                       curr_view)
+      print ('Done with the crawl. Still ' + str(len(v.clickable)) +
+             ' components to click for this View.')
+
+  print 'No more views to crawl'
