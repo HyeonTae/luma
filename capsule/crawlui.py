@@ -506,7 +506,7 @@ def crawl_package(vc, device, package_name=None):
     print 'We still have ' + str(len(still_exploring)) + ' views to explore.'
     print 'Still need to explore: ' + str(still_exploring.keys())
     v = still_exploring.values()[0]
-    print 'Now trying to explore ' v.get_name()
+    print 'Now trying to explore '+  v.get_name()
     path = find_path_from_root_to_view(v, view_map)
     print 'Route from root to ' + v.get_name()
     if path:
