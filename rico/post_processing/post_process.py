@@ -26,6 +26,7 @@ DEVICE_WIDTH = 1440
 DEVICE_HEIGHT = 2560
 BB_SEPARATION = 1
 
+
 def makedir(path):
   if not os.path.exists(path):
     os.makedirs(path)
@@ -129,14 +130,13 @@ def write_html(viz_names, views):
 
 
 def sort_events(events):
-  """Sorts events based on timestamp.
+  """Sorts events based on timestamp."""
 
+  # When multiple events have the same timestamp, we only care about getting the
+  # GestureStart and GestureStop events in the right place. Even if the order
+  # of the other events in between are off, it does not affect us.
+  # We push GestureStarts forwards and GestureStops backwards for breaking ties.
 
-  When multiple events have the same timestamp, we only care about getting the
-  GestureStart and GestureStop events in the right place. Even if the order
-  of the other events in between are off, it does not affect us.
-  We push GestureStarts forwards and GestureStops backwards for breaking ties.
-  """
   events = sorted(events, key=lambda k: k["timestamp"])
   for idx in range(len(events) - 1, 0, -1):
     event = events[idx]
@@ -178,7 +178,7 @@ def save_processed_data(folder, views, gesture_coords, click_map):
 if __name__ == "__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument("data_folder_path",
-                      help = ("Full path to the data folder. It could contain "
+                      help=("Full path to the data folder. It could contain "
                             "multiple folders for different sessions inside it."
                            )
                      )
@@ -272,8 +272,14 @@ if __name__ == "__main__":
         try:
           view = load_view(session_path, view_num)
           bounds = clickable_elements_bounds(view)
-          x_factor = width/float(DEVICE_WIDTH)
-          y_factor = height/float(DEVICE_HEIGHT)
+          if width < height:
+            # Portrait mode.
+            x_factor = width/float(DEVICE_WIDTH)
+            y_factor = height/float(DEVICE_HEIGHT)
+          else:
+            # Landscape mode.
+            x_factor = width/float(DEVICE_HEIGHT)
+            y_factor = height/float(DEVICE_WIDTH)
           for bound in bounds:
             new_bound = [int(bound[0] * x_factor), int(bound[1] * y_factor),
                          int(bound[2] * x_factor), int(bound[3] * y_factor)]
@@ -293,7 +299,7 @@ if __name__ == "__main__":
                        bound[2] - BB_SEPARATION, bound[3] - BB_SEPARATION]
               color = CLICKED_ELEMENT_COLOR
               draw.rectangle(bound, outline=color)
-        except IOError:
+        except (IOError, KeyError):
           # This exception happens when Rico did not capture any JSON for this
           # view. We ignore this case and move on.
           pass
