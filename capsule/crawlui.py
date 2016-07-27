@@ -14,9 +14,12 @@ import time
 from com.dtmilano.android.common import obtainAdbPath
 from view import View
 
+# https://material.google.com/layout/structure.html#structure-system-bars
+NAVBAR_DP_HEIGHT = 48
+
 MAX_X = 0
 MAX_Y = 0
-NAVBAR_HEIGHT = 0
+STATUS_BAR_HEIGHT = 0
 
 # Visibility
 VISIBLE = 0x0
@@ -58,19 +61,27 @@ def extract_between(text, sub1, sub2, nth=1):
 
 def set_device_dimens(vc, device):
   """Sets global variables to the dimensions of the device."""
-  global MAX_X, MAX_Y, NAVBAR_HEIGHT
+  global MAX_X, MAX_Y, STATUS_BAR_HEIGHT
 
   # Returns a string similar to "Physical size: 1440x2560"
   size = device.shell('wm size')
+  # Returns a string similar to "Physical density: 560"
+  density = int(device.shell('wm density').split(' ')[-1])
+  # We do not want the crawler to click on the navigation bar because it can
+  # hit the back button or minimize the app.
+  # From https://developer.android.com/guide/practices/screens_support.html
+  # The conversion of dp units to screen pixels is simple: px = dp * (dpi / 160)
+  navbar_height = NAVBAR_DP_HEIGHT * density / 160
+
   MAX_X = int(extract_between(size, ': ', 'x'))
-  MAX_Y = int(extract_between(size, 'x', '\r'))
+  MAX_Y = int(extract_between(size, 'x', '\r')) - navbar_height
   vc_dump = perform_vc_dump(vc)
   if vc_dump:
-    NAVBAR_HEIGHT = (
+    STATUS_BAR_HEIGHT = (
         vc_dump[0].getY() - int(vc_dump[0]['layout:getLocationOnScreen_y()']))
   else:
-    # Keep navbar at default 0 height.
-    print 'Cannot get navbar height.'
+    # Keep status at default 0 height.
+    print 'Cannot get status bar height.'
 
 
 def perform_press_back(device):
@@ -251,7 +262,7 @@ def create_view(package_name, vc_dump, activity, frag_list):
       if (component.isClickable() and component.getVisibility() == VISIBLE and
           component.getX() >= 0 and component.getX() <= MAX_X and
           component.getWidth() > 0 and
-          component.getY() >= NAVBAR_HEIGHT and component.getY() <= MAX_Y
+          component.getY() >= STATUS_BAR_HEIGHT and component.getY() <= MAX_Y
           and component.getHeight() > 0):
         print (component.getId() + ' ' + component.getClass()
                + ' ' + str(component.getXY()) + '-- will be clicked')
