@@ -361,7 +361,7 @@ def follow_path_to_view(path, goal, package_name, device, view_map,
 
         if activity is EXITED_APP:
           return False
-        vc_dump = vc.dump(window='-1')
+        vc_dump = perform_vc_dump(vc)
         curr_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
                                      still_exploring, device)
         prev_view = view_map.get(path[p_idx - 1][0])
