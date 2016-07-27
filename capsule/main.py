@@ -43,7 +43,7 @@ if __name__ == '__main__':
   if DEBUG:
     crawlui.crawl_package(vc, device)
   else:
-    package_list = os.listdir(APK_DIR)
+    package_list = sorted(os.listdir(APK_DIR))
     for package in package_list:
       # Install and crawl the app. device.shell() does not support the install
       # or launch.
