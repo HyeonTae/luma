@@ -14,8 +14,8 @@ import time
 from com.dtmilano.android.common import obtainAdbPath
 from view import View
 
-MAX_HEIGHT = 0
-MAX_WIDTH = 0
+MAX_X = 0
+MAX_Y = 0
 NAVBAR_HEIGHT = 0
 
 # Visibility
@@ -35,6 +35,14 @@ NUM_BACK_PRESSES = 3
 # Number of dumps we'll try in a row before succumbing to socket timeouts and
 # giving up.
 MAX_DUMPS = 6
+# To prevent getting stuck in apps with a large number of UIs or dynamic content
+# that can change the view hierarchy each time it's loaded, we limit the number
+# of crawls to perform and max number of views to store per app.
+MAX_CRAWLS = 20
+MAX_VIEWS = 40
+# We use this to prevent loops that can occur when back button behavior creates
+# a cycle.
+MAX_CONSEC_BACK_PRESSES = 10
 
 
 def extract_between(text, sub1, sub2, nth=1):
@@ -50,12 +58,12 @@ def extract_between(text, sub1, sub2, nth=1):
 
 def set_device_dimens(vc, device):
   """Sets global variables to the dimensions of the device."""
-  global MAX_HEIGHT, MAX_WIDTH, NAVBAR_HEIGHT
+  global MAX_X, MAX_Y, NAVBAR_HEIGHT
 
   # Returns a string similar to "Physical size: 1440x2560"
   size = device.shell('wm size')
-  MAX_HEIGHT = int(extract_between(size, 'x', '\r'))
-  MAX_WIDTH = int(extract_between(size, ': ', 'x'))
+  MAX_X = int(extract_between(size, ': ', 'x'))
+  MAX_Y = int(extract_between(size, 'x', '\r'))
   vc_dump = perform_vc_dump(vc)
   if vc_dump:
     NAVBAR_HEIGHT = (
@@ -96,7 +104,7 @@ def return_to_app_activity(package_name, device):
 
 def obtain_activity_name(package_name, device):
   """Gets the current running activity of the package."""
-  # TODO(afergan): See if we can consolidate this with obtain_fragment_list, but
+  # TODO(afergan): See if we can consolidate this with obtain_frag_list, but
   # still make sure that the current app has focus.
   # TODO(afergan): Check for Windows compatibility.
   activity_str = device.shell('dumpsys window windows '
@@ -125,9 +133,14 @@ def obtain_frag_list(package_name, device):
                          re.DOTALL)
   if frag_dump:
     frag_list = re.findall(': (.*?){', frag_dump[0], re.DOTALL)
+    # For irregular or app-generated fragment names with spaces and IDs,
+    # terminate the name at the first space.
+    for i in range(0, len(frag_list)):
+      if ' ' in frag_list[i]:
+        frag_list[i] = frag_list[i].split()[0]
     return frag_list
 
-  return None
+  return []
 
 
 def obtain_package_name(device):
@@ -234,15 +247,17 @@ def create_view(package_name, vc_dump, activity, frag_list):
     # TODO(afergan): For now, only click on certain components, and allow custom
     # components. Evaluate later if this is worth it or if we should just click
     # on everything attributed as clickable.
-    if (component.isClickable() and component.getVisibility() == VISIBLE and
-        component.getX() >= 0 and component.getX() <= MAX_WIDTH and
-        component.getWidth() > 0 and
-        component.getY() >= NAVBAR_HEIGHT and component.getY() <= MAX_HEIGHT and
-        component.getHeight() > 0):
-      print (component.getId() + ' ' + component.getClass()
-             + ' ' + str(component.getXY()) + '-- will be clicked')
-      v.clickable.append(component)
-
+    try:
+      if (component.isClickable() and component.getVisibility() == VISIBLE and
+          component.getX() >= 0 and component.getX() <= MAX_X and
+          component.getWidth() > 0 and
+          component.getY() >= NAVBAR_HEIGHT and component.getY() <= MAX_Y
+          and component.getHeight() > 0):
+        print (component.getId() + ' ' + component.getClass()
+               + ' ' + str(component.getXY()) + '-- will be clicked')
+        v.clickable.append(component)
+    except AttributeError:
+      print 'Could not get component attributes.'
   return v
 
 
@@ -285,12 +300,19 @@ def obtain_curr_view(activity, package_name, vc_dump, view_map, still_exploring,
   else:
     print 'New view'
     new_view = create_view(package_name, vc_dump, activity, frag_list)
-    view_map[new_view.get_name()] = new_view
-    if new_view.clickable:
-      still_exploring[new_view.get_name()] = new_view
-      print ('Added ' + new_view.get_name() + ' to still_exploring. Length is '
-             'now ' + str(len(still_exploring)))
-    return new_view
+    # Make sure we have a valid View. This will be false if we get a socket
+    # timeout.
+    if new_view.get_name():
+      view_map[new_view.get_name()] = new_view
+      # If there are clickable components, explore this new View.
+      if new_view.clickable:
+        still_exploring[new_view.get_name()] = new_view
+        print ('Added ' + new_view.get_name() + ' to still_exploring. Length '
+               'is now ' + str(len(still_exploring)))
+      return new_view
+
+  print 'Could not obtain current view.'
+  return None
 
 
 def find_component_to_lead_to_view(view1, view2):
@@ -396,7 +418,10 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
 
   curr_view = start_view
   prev_clicked = ''
-  while True:
+  consec_back_presses = 0
+
+  while (len(view_map) < MAX_VIEWS and
+         consec_back_presses < MAX_CONSEC_BACK_PRESSES):
 
     # If last click opened the keyboard, assume we're in the same view and just
     # click on the next element. Since opening the keyboard can leave traces of
@@ -432,14 +457,17 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
         print('Clicking {} {}, ({},{})'.format(c.getUniqueId(), c.getClass(),
                                                c.getX(), c.getY()))
         c.touch()
+        consec_back_presses = 0
         prev_clicked = c.getUniqueId()
         del curr_view.clickable[-1]
 
       else:
         print 'Removing ' + curr_view.get_name() + ' from still_exploring.'
         still_exploring.pop(curr_view.get_name(), 0)
-        print 'Clicking back button'
+        print ('Clicking back button, consec_back_presses is ' +
+               str(consec_back_presses))
         perform_press_back(device)
+        consec_back_presses += 1
         prev_view = curr_view
         prev_clicked = BACK_BUTTON
 
@@ -448,6 +476,7 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
         num_dumps = 0
         while not vc_dump and num_dumps < MAX_DUMPS:
           perform_press_back(device)
+          consec_back_presses += 1
           vc_dump = perform_vc_dump(vc)
           num_dumps += 1
 
@@ -472,6 +501,7 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
           link_ui_views(prev_view, curr_view, 'back button', package_name)
     else:
       perform_press_back(device)
+      consec_back_presses += 1
 
 
 def crawl_package(vc, device, package_name=None):
@@ -501,33 +531,40 @@ def crawl_package(vc, device, package_name=None):
   print 'Root is ' + root_view.get_name()
   print 'We have seen ' + str(len(view_map)) + ' unique views.'
 
+  num_crawls = 0
+
   # Recrawl Views that aren't completely explored.
-  while still_exploring:
+  while (still_exploring and num_crawls < MAX_CRAWLS and
+         len(view_map) < MAX_VIEWS):
+    print 'Crawl #' + str(num_crawls)
+    num_crawls += 1
     print 'We still have ' + str(len(still_exploring)) + ' views to explore.'
     print 'Still need to explore: ' + str(still_exploring.keys())
     v = still_exploring.values()[0]
     print 'Now trying to explore '+  v.get_name()
     path = find_path_from_root_to_view(v, view_map)
     print 'Route from root to ' + v.get_name()
-    if path:
-      for p in path:
-        print p[0] + ' ' + p[1]
-    else:
-      print 'No path to ' + v.get_name()
+
     # Restart the app with its initial screen.
     subprocess.call([ADB_PATH, 'shell', 'am force-stop', package_name])
     subprocess.call([ADB_PATH, 'shell', 'monkey', '-p', package_name, '-c',
                      'android.intent.category.LAUNCHER', '1'])
     time.sleep(5)
-    reached_view = follow_path_to_view(path, v, package_name, device,
-                                       view_map, still_exploring, vc)
+
+    if path:
+      for p in path:
+        print p[0] + ' ' + p[1]
+        reached_view = follow_path_to_view(path, v, package_name, device,
+                                           view_map, still_exploring, vc)
+    else:
+      reached_view = is_active_view(v, package_name, device)
+      if reached_view:
+        print 'At root view: ' + str(reached_view)
+      else:
+        print 'No path to ' + v.get_name()
+
     vc_dump = perform_vc_dump(vc)
     activity = obtain_activity_name(package_name, device)
-    if activity == EXITED_APP:
-      break
-    curr_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
-                                 still_exploring, device)
-    print 'Wanted ' + v.get_name() + ', at ' + curr_view.get_name()
 
     if reached_view:
       print 'Reached the view we were looking for.'
@@ -535,6 +572,12 @@ def crawl_package(vc, device, package_name=None):
       print ('Did not reach intended view, removing ' + v.get_name() +
              ' from still_exploring.')
       still_exploring.pop(v.get_name(), 0)
+
+    if activity == EXITED_APP:
+      break
+    curr_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
+                                 still_exploring, device)
+    print 'Wanted ' + v.get_name() + ', at ' + curr_view.get_name()
 
     if curr_view.clickable:
       # If we made it to our intended View, or at least a View with
@@ -544,5 +587,8 @@ def crawl_package(vc, device, package_name=None):
                        curr_view)
       print ('Done with the crawl. Still ' + str(len(v.clickable)) +
              ' components to click for this View.')
+    else:
+      print 'Nothing left to click for ' + v.get_name()
+      still_exploring.pop(v.get_name(), 0)
 
   print 'No more views to crawl'

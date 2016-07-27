@@ -28,7 +28,10 @@ class View(object):
   def get_name(self):
     """Returns the identifying name of the View."""
     try:
-      return self.activity + '-' + self.frag_list[0] + '-' + str(self.num)
+      if self.frag_list:
+        return self.activity + '-' + self.frag_list[0] + '-' + str(self.num)
+      else:
+        return self.activity + '-' + str(self.num)
     except TypeError:
       print 'Not a valid view.'
       return ''
