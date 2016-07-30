@@ -6,12 +6,14 @@ Crawling Apps UIs (and Learning Everything)
 
 Capsule is a program designed to crawl all of the UIs of an Android app and
 store the view hierarchies, screenshots, and relationships between views. It
-attempts to click on all clickable components and reach as many unique views as possible.
+attempts to click on all clickable components and reach as many unique views as
+possible.
 
 Capsule requires an Android emulator or phone using a debug version of Android
 and uses the
 [AndroidViewClient](https://github.com/dtmilano/AndroidViewClient) library and
-[Android Debug Bridge](https://developer.android.com/studio/command-line/adb.html) commands to communicate with the device.
+[Android Debug Bridge](https://developer.android.com/studio/command-line/adb.html)
+commands to communicate with the device.
 
 The application considers views to be distinct if they have a different activity
 name, fragment composition, or view hierarchy.
@@ -19,19 +21,24 @@ name, fragment composition, or view hierarchy.
 
 ## Code Example
 
-If Capsule is run with no command line arguments with the command, it crawls the current app (assuming that the current view is the starting view of the app.)
+If Capsule is run with no command line arguments with the command, it crawls the
+current app (assuming that the current view is the starting view of the app.)
 
-```$ python capsule.py```
+Although the device name is optional with no command line arguments, you must
+specify the device name if you pass in any arguments.
 
-If a text file is passed in as a command line argument, Capsule attempts to
-crawl each app listed in the file (one app per line), assuming that all of the packages are already installed on the device.
+```$ python capsule.py 'emulator-5554'```
 
-```$ python capsule.py /[PATH TO FILE]/list.txt```
+If a text file is passed in as a command line argument (with -f or --file),
+Capsule attempts to crawl each app listed in the file (one app per line),
+assuming that all of the packages are already installed on the device.
 
-If a directory is passed in as an argument, Capsule installs, crawls, and
-uninstalls each of the apps in the directory in alphabetical order.
+```$ python capsule.py 'emulator-5554' -f /[PATH TO FILE]/list.txt```
 
-```$ python capsule.py /[PATH TO APKS]/```
+If a directory is passed in as an argument (with -d or --dir), Capsule installs,
+crawls, and uninstalls each of the apps in the directory in alphabetical order.
+
+```$ python capsule.py -d /[PATH TO APKS]/```
 
 ## Motivation
 
@@ -59,7 +66,8 @@ To use Capsule, you must have AndroidViewClient installed.
 ### AndroidViewClient
 If you are just cloning this repo, you can either directly install
 AndroidViewClient by reading the instructions on
-[dtmilano’s wiki](https://github.com/dtmilano/AndroidViewClient/wiki#using-easy_install) or by:
+[dtmilano’s wiki](https://github.com/dtmilano/AndroidViewClient/wiki#using-easy_install) 
+or by:
 
 ``$ sudo apt-get install python-setuptools # not needed on Ubuntu``
 

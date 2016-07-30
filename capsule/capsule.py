@@ -4,9 +4,11 @@
 
 """The main module for the APK Crawler application."""
 
+import getopt
 import os
 import subprocess
 import sys
+import time
 
 from com.dtmilano.android.common import obtainAdbPath
 from com.dtmilano.android.viewclient import ViewClient
@@ -14,10 +16,14 @@ import crawlpkg
 
 ADB_PATH = obtainAdbPath()
 # os.environ['ANDROID_ADB_SERVER_PORT'] = '5554'
-APK_DIR = os.path.dirname(os.path.abspath(__file__)) + '/apks/'
-# Whether we should skip the install & load process and just run the program
-# on the currently loaded app.
-DEBUG = True
+HELP_MSG = ('Capsule usage:\n'
+            "python capsule.py 'DEVICE_NAME' [flag] <argument>\n"
+            'No command line flags -- crawl current package\n'
+            '-d or --dir /PATH_TO_APKS/  -- install and run APKS from a '
+            'directory.\n'
+            '-f or --file /[PATH TO FILE]/list.txt -- load text file of '
+            'package names on device and crawl them.\n'
+            '-h or --help -- help, list options')
 
 # PyDev sets PYTHONPATH, use it
 try:
@@ -33,33 +39,117 @@ except KeyError:
   print 'Please set the environment variable ANDROID_VIEW_CLIENT_HOME'
 
 
+def load_pkgs_from_dir(dir_path):
+  """Return all of the package names in a directory."""
+
+  # Allow user to input either relative or absolute path to directory.
+  directory = os.path.join(os.getcwd() + dir_path)
+  if os.path.exists(directory):
+    names = sorted(os.listdir(directory))
+    pkg_list = [os.path.join(directory + n) for n in names if '.apk' in n]
+  elif os.path.exists(dir_path):
+    names = sorted(os.listdir(dir_path))
+    pkg_list = [os.path.join(dir_path + n) for n in names if '.apk' in n]
+  else:
+    print 'Directory does not exist.'
+    return []
+
+  return pkg_list
+
+
+def load_pkgs_from_file(filename):
+  """Return all of the package names listed in a text file."""
+
+  # Allow user to input either relative or absolute path.
+  f = os.path.join(os.getcwd() + filename)
+  if os.path.isfile(f):
+    pkg_list = [pkg.strip('\n') for pkg in open(f)]
+    return sorted(pkg_list)
+  elif os.path.isfile(filename):
+    pkg_list = [pkg.strip('\n') for pkg in open(filename)]
+    return sorted(pkg_list)
+  else:
+    print 'File does not exist.'
+    return []
+
+
 if __name__ == '__main__':
+
+  # Should we uninstall APKs once we install them. Setting it to true allows us
+  # to do bulk crawling since we do not need to worry about the device memory
+  # filling up.
+  uninstall = False
+
   kwargs1 = {'verbose': True, 'ignoresecuredevice': True}
   kwargs2 = {'startviewserver': True, 'forceviewserveruse': True,
              'autodump': False, 'ignoreuiautomatorkilled': True}
   device, serialno = ViewClient.connectToDeviceOrExit(**kwargs1)
   vc = ViewClient(device, serialno, **kwargs2)
 
-  if DEBUG:
+  # User only specified emulator name or nothing at all.
+  if len(sys.argv) <= 2:
+    print 'No command line arguments, crawling currently launched app.'
     crawlpkg.crawl_package(vc, device)
-  else:
-    package_list = sorted(os.listdir(APK_DIR))
-    for package in package_list:
-      # Install and crawl the app. device.shell() does not support the install
-      # or launch.
-      # Install the app.
-      subprocess.call([ADB_PATH, 'install', '-r',
-                       APK_DIR + package])
-      if '.apk' in package:
-        package_name = os.path.splitext(package)[0]
+  # Command line argument is only valid if the user entered the filename,
+  # emulator name, one option flag, and one argument.
+  elif len(sys.argv) == 3 and sys.argv[2] == '-h' or sys.argv[2] == '--help':
+    print HELP_MSG
+  elif len(sys.argv) == 4:
+    package_list = []
+    try:
+      opts, _ = getopt.getopt(sys.argv[2:], 'd:f:h', ['directory=', 'file='])
+    except getopt.GetoptError as err:
+      print str(err)
+      print HELP_MSG
+      sys.exit()
+
+    # This infrastructure allows us to add additional command line argument
+    # possibilities easily.
+    for opt, arg in opts:
+      if opt in ('-d', '-dir'):
+        uninstall = True
+        package_list = load_pkgs_from_dir(arg)
+      elif opt in ('-f', '--file'):
+        package_list = load_pkgs_from_file(arg)
+      elif opt in ('-h', '--help'):
+        print HELP_MSG
       else:
-        # If the apk is saved without the extension.
-        package_name = package
+        print ('Unhandled option. Use -h or --help for a listing of '
+               'commands')
+        sys.exit()
+
+    if package_list:
+      print 'Packages to be crawled: ' + ', '.join(package_list)
+
+    for package in package_list:
+      # Possibly install, then launch and crawl the app. device.shell() does
+      # not support the install or launch.
+
+      if '.apk' in package:
+        # Install the app.
+        subprocess.call([ADB_PATH, 'install', '-r', package])
+        package_name = crawlpkg.extract_between(package, '/', '.apk', -1)
+      else:
+        # We have the package name and assume it is on the device.
+        package_name = package.split('/')[-1]
+        # Make sure the package is installed on the device by checking it
+        # against installed third-party packages.
+        installed_pkgs = subprocess.check_output([ADB_PATH, 'shell',
+                                                  'pm', 'list packages', '-3'])
+        if package_name not in installed_pkgs:
+          print 'Cannot find the package on the device.'
+          break
 
       print 'Crawling ' + package_name
       # Launch the app.
       subprocess.call([ADB_PATH, 'shell', 'monkey', '-p', package_name, '-c',
                        'android.intent.category.LAUNCHER', '1'])
+      time.sleep(5)
 
       crawlpkg.crawl_package(vc, device, package_name)
-      subprocess.call([ADB_PATH, 'uninstall', package_name])
+
+      if uninstall:
+        subprocess.call([ADB_PATH, 'uninstall', package_name])
+  else:
+    print 'Invalid number of command line arguments.'
+    print HELP_MSG
