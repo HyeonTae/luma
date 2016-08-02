@@ -31,7 +31,7 @@ class View(object):
       if self.frag_list:
         return self.activity + '-' + self.frag_list[0] + '-' + str(self.num)
       else:
-        return self.activity + '-' + str(self.num)
+        return self.activity + '-NoFrags-' + str(self.num)
     except TypeError:
       print 'Not a valid view.'
       return ''

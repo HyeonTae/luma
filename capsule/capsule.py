@@ -79,6 +79,8 @@ if __name__ == '__main__':
   # to do bulk crawling since we do not need to worry about the device memory
   # filling up.
   uninstall = False
+  should_crawl = False
+  package_list = []
 
   kwargs1 = {'verbose': True, 'ignoresecuredevice': True}
   kwargs2 = {'startviewserver': True, 'forceviewserveruse': True,
@@ -94,10 +96,9 @@ if __name__ == '__main__':
   # emulator name, one option flag, and one argument.
   elif len(sys.argv) == 3 and sys.argv[2] == '-h' or sys.argv[2] == '--help':
     print HELP_MSG
-  elif len(sys.argv) == 4:
-    package_list = []
+  elif len(sys.argv) >= 4:
     try:
-      opts, _ = getopt.getopt(sys.argv[2:], 'd:f:h', ['directory=', 'file='])
+      opts, _ = getopt.getopt(sys.argv[2:], 'd:f:h:r', ['directory=', 'file='])
     except getopt.GetoptError as err:
       print str(err)
       print HELP_MSG
@@ -113,6 +114,8 @@ if __name__ == '__main__':
         package_list = load_pkgs_from_file(arg)
       elif opt in ('-h', '--help'):
         print HELP_MSG
+      elif opt in ('-r', '--recrawl'):
+        should_crawl = True
       else:
         print ('Unhandled option. Use -h or --help for a listing of '
                'commands')
@@ -124,13 +127,12 @@ if __name__ == '__main__':
     for package in package_list:
       # Possibly install, then launch and crawl the app. device.shell() does
       # not support the install or launch.
-
+      package_name = ''
       if '.apk' in package:
-        # Install the app.
-        subprocess.call([ADB_PATH, 'install', '-r', package])
         package_name = crawlpkg.extract_between(package, '/', '.apk', -1)
+
       else:
-        # We have the package name and assume it is on the device.
+        # We have the package name but not the .apk file.
         package_name = package.split('/')[-1]
         # Make sure the package is installed on the device by checking it
         # against installed third-party packages.
@@ -139,17 +141,28 @@ if __name__ == '__main__':
         if package_name not in installed_pkgs:
           print 'Cannot find the package on the device.'
           break
+      if not os.path.exists(os.path.dirname(os.path.abspath(__file__))
+                            + '/data/' + package_name):
+        should_crawl = True
+      else:
+        print ('Package has already been crawled and should_crawl is set to ' +
+               str(should_crawl))
 
-      print 'Crawling ' + package_name
-      # Launch the app.
-      subprocess.call([ADB_PATH, 'shell', 'monkey', '-p', package_name, '-c',
-                       'android.intent.category.LAUNCHER', '1'])
-      time.sleep(5)
+      if should_crawl:
+        print 'Crawling ' + package_name
+        should_crawl = True
+        # Launch the app.
+        subprocess.call([ADB_PATH, 'shell', 'monkey', '-p', package_name, '-c',
+                         'android.intent.category.LAUNCHER', '1'])
+        time.sleep(5)
+        if '.apk' in package:
+          subprocess.call([ADB_PATH, 'install', '-r', package])
+        crawlpkg.crawl_package(vc, device, package_name)
 
-      crawlpkg.crawl_package(vc, device, package_name)
+        if uninstall:
+          print 'uninstall' + package_name
+          subprocess.call([ADB_PATH, 'uninstall', package_name])
 
-      if uninstall:
-        subprocess.call([ADB_PATH, 'uninstall', package_name])
   else:
     print 'Invalid number of command line arguments.'
     print HELP_MSG

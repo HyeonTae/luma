@@ -16,7 +16,8 @@ and uses the
 commands to communicate with the device.
 
 The application considers views to be distinct if they have a different activity
-name, fragment composition, or view hierarchy.
+name, fragment composition, or view hierarchy. It stores all of the data in
+a /capsule/data/ directory.
 
 
 ## Code Example
@@ -39,6 +40,10 @@ If a directory is passed in as an argument (with -d or --dir), Capsule installs,
 crawls, and uninstalls each of the apps in the directory in alphabetical order.
 
 ```$ python capsule.py -d /[PATH TO APKS]/```
+
+### Additional Flags
+-r or --recrawl: Recrawl an already crawled app. If this is not specified and a
+directory already exists at /data/[APP NAME], it will skip crawling the app.
 
 ## Motivation
 
@@ -66,7 +71,7 @@ To use Capsule, you must have AndroidViewClient installed.
 ### AndroidViewClient
 If you are just cloning this repo, you can either directly install
 AndroidViewClient by reading the instructions on
-[dtmilano’s wiki](https://github.com/dtmilano/AndroidViewClient/wiki#using-easy_install) 
+[dtmilano’s wiki](https://github.com/dtmilano/AndroidViewClient/wiki#using-easy_install)
 or by:
 
 ``$ sudo apt-get install python-setuptools # not needed on Ubuntu``
@@ -91,7 +96,7 @@ requests, so you must follow the
 instructions.
 In addition, feel free to file issues on the
 [luma issue tracker](https://github.com/vanadium/luma/issues) or contact the
-Capsule engineering lead, [Dan Afergan](afergan@google.com)
+Capsule engineering lead, [Dan Afergan](afergan@google.com).
 
 ## License
 This is not an official Google product.

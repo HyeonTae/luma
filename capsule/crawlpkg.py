@@ -170,6 +170,12 @@ def obtain_package_name(device):
 
 def is_active_view(stored_view, package_name, device):
   """Check if the current View name matches a stored View."""
+  print str(obtain_frag_list(package_name, device))
+  print ('Curr activity / frag list: ' +
+         obtain_activity_name(package_name, device) + ' ' +
+         str(obtain_frag_list(package_name, device)))
+  print ('Stored activity + frag list: ' + stored_view.activity + ' ' +
+         str(stored_view.frag_list))
   return (obtain_activity_name(package_name, device) == stored_view.activity
           and Counter(obtain_frag_list(package_name, device)) ==
           Counter(stored_view.frag_list))
@@ -408,12 +414,12 @@ def follow_path_to_view(path, goal, package_name, device, view_map,
       perform_press_back(device)
     else:
       vc_dump = perform_vc_dump(vc)
-      click_target = next((component for component in vc_dump
-                           if component.getUniqueId() == click_id), None)
-
-      if click_target:
-        print 'Clicking on ' + click_target.getUniqueId()
-        click_target.touch()
+      if vc_dump:
+        click_target = next((component for component in vc_dump
+                             if component.getUniqueId() == click_id), None)
+        if click_target:
+          print 'Clicking on ' + click_target.getUniqueId()
+          click_target.touch()
       else:
         print ('Could not find the right component to click on, was looking '
                'for ' + click_id)
@@ -465,11 +471,15 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
 
       if curr_view.clickable:
         c = curr_view.clickable[-1]
-        print('Clicking {} {}, ({},{})'.format(c.getUniqueId(), c.getClass(),
-                                               c.getX(), c.getY()))
-        c.touch()
-        consec_back_presses = 0
-        prev_clicked = c.getUniqueId()
+        try:
+          print('Clicking {} {}, ({},{})'.format(c.getUniqueId(), c.getClass(),
+                                                 c.getX(), c.getY()))
+          c.touch()
+          consec_back_presses = 0
+          prev_clicked = c.getUniqueId()
+        except UnicodeEncodeError:
+          print '***Unicode coordinates'
+
         del curr_view.clickable[-1]
 
       else:
@@ -501,15 +511,16 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
             print 'Clicking back took us out of the app'
             return
 
-        curr_view = obtain_curr_view(activity, package_name, vc_dump,
-                                     view_map, still_exploring, device)
-        if prev_view.is_duplicate_view(curr_view):
-          # We have nothing left to click, and the back button doesn't change
-          # views.
-          print 'Pressing back keeps at the current view'
-          return
-        else:
-          link_ui_views(prev_view, curr_view, 'back button', package_name)
+        if vc_dump:
+          curr_view = obtain_curr_view(activity, package_name, vc_dump,
+                                       view_map, still_exploring, device)
+          if prev_view.is_duplicate_view(curr_view):
+            # We have nothing left to click, and the back button doesn't change
+            # views.
+            print 'Pressing back keeps at the current view'
+            return
+          else:
+            link_ui_views(prev_view, curr_view, 'back button', package_name)
     else:
       perform_press_back(device)
       consec_back_presses += 1
@@ -534,6 +545,8 @@ def crawl_package(vc, device, package_name=None):
   if not vc_dump:
     return
   activity = obtain_activity_name(package_name, device)
+  if activity == EXITED_APP:
+    return
   root_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
                                still_exploring, device)
   crawl_until_exit(vc, device, package_name, view_map, still_exploring,
@@ -565,8 +578,8 @@ def crawl_package(vc, device, package_name=None):
     if path:
       for p in path:
         print p[0] + ' ' + p[1]
-        reached_view = follow_path_to_view(path, v, package_name, device,
-                                           view_map, still_exploring, vc)
+      reached_view = follow_path_to_view(path, v, package_name, device,
+                                         view_map, still_exploring, vc)
     else:
       reached_view = is_active_view(v, package_name, device)
       if reached_view:
@@ -586,20 +599,22 @@ def crawl_package(vc, device, package_name=None):
 
     if activity == EXITED_APP:
       break
-    curr_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
-                                 still_exploring, device)
-    print 'Wanted ' + v.get_name() + ', at ' + curr_view.get_name()
 
-    if curr_view.clickable:
-      # If we made it to our intended View, or at least a View with
-      # unexplored components, start crawling again.
-      print 'Crawling again'
-      crawl_until_exit(vc, device, package_name, view_map, still_exploring,
-                       curr_view)
-      print ('Done with the crawl. Still ' + str(len(v.clickable)) +
-             ' components to click for this View.')
-    else:
-      print 'Nothing left to click for ' + v.get_name()
-      still_exploring.pop(v.get_name(), 0)
+    if vc_dump:
+      curr_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
+                                   still_exploring, device)
+      print 'Wanted ' + v.get_name() + ', at ' + curr_view.get_name()
+
+      if curr_view.clickable:
+        # If we made it to our intended View, or at least a View with
+        # unexplored components, start crawling again.
+        print 'Crawling again'
+        crawl_until_exit(vc, device, package_name, view_map, still_exploring,
+                         curr_view)
+        print ('Done with the crawl. Still ' + str(len(v.clickable)) +
+               ' components to click for this View.')
+      else:
+        print 'Nothing left to click for ' + v.get_name()
+        still_exploring.pop(v.get_name(), 0)
 
   print 'No more views to crawl'
