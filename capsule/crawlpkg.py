@@ -228,9 +228,10 @@ def save_view_data(package_name, activity, frag_list, vc_dump):
   # device.shell() does not work for taking/pulling screencaps.
   subprocess.call([ADB_PATH, 'shell', 'screencap', '/sdcard/' + screen_name])
   subprocess.call([ADB_PATH, 'pull', '/sdcard/' + screen_name, screen_path])
+  subprocess.call([ADB_PATH, 'shell', 'rm', '/sdcard/' + screen_name])
   # Returns the filename & num so that the screenshot can be accessed
   # programatically.
-  return [screen_path, file_num]
+  return screen_path, file_num
 
 
 def save_ui_flow_relationships(view_to_save, package_name):
@@ -257,8 +258,14 @@ def find_view_in_map(activity, frag_list, vc_dump, view_map):
 
 def create_view(package_name, vc_dump, activity, frag_list):
   """Stores the current view in the View data structure."""
-  save_info = save_view_data(package_name, activity, frag_list, vc_dump)
-  v = View(activity, frag_list, vc_dump, save_info[0], save_info[1])
+  screenshot, num = save_view_data(package_name, activity, frag_list, vc_dump)
+
+  # If we think the first element in the view hierarchy is a back button, move
+  # it to the end of the list so that we click on it last.
+  if 'back' in vc_dump[0].getUniqueId().lower():
+    vc_dump.append(vc_dump.pop())
+
+  v = View(activity, frag_list, vc_dump, screenshot, num)
 
   for component in v.hierarchy:
     # TODO(afergan): For now, only click on certain components, and allow custom
@@ -430,9 +437,9 @@ def follow_path_to_view(path, goal, package_name, device, view_map,
 
 
 def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
-                     start_view):
+                     start_view, logged_in):
   """Main crawler loop. Evaluates views, store new views, and click on items."""
-
+  print 'Logged in: ' + str(logged_in)
   curr_view = start_view
   prev_clicked = ''
   consec_back_presses = 0
@@ -470,25 +477,64 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
       print 'Num clickable: ' + str(len(curr_view.clickable))
 
       if curr_view.clickable:
-        c = curr_view.clickable[-1]
         try:
-          print('Clicking {} {}, ({},{})'.format(c.getUniqueId(), c.getClass(),
-                                                 c.getX(), c.getY()))
-          c.touch()
-          consec_back_presses = 0
-          prev_clicked = c.getUniqueId()
+          found_login = False
+          if not logged_in:
+            for click in curr_view.clickable:
+              click_id = click.getUniqueId().lower()
+              if (click.getClass() == 'com.facebook.widget.LoginButton' or
+                  ('facebook' in click_id and 'login' in click_id) or
+                  ('fb' in click_id and 'login' in click_id)):
+                found_login = True
+                print 'Trying to log into Facebook.'
+                # Sometimes .touch() doesn't work
+                device.shell('input tap ' + str(click.getX()) +
+                             ' ' + str(click.getY()))
+                consec_back_presses = 0
+                prev_clicked = click.getUniqueId()
+                curr_view.clickable.remove(click)
+                time.sleep(10)
+                # Make sure the new screen is loaded by waiting for the dump.
+                fb_dump = perform_vc_dump(vc)
+                if fb_dump:
+                  for f in fb_dump:
+                    print f.getUniqueId() + str(f.getXY())
+                activity_str = device.shell('dumpsys window windows '
+                                            '| grep -E \'mCurrentFocus\'')
+                if 'com.facebook.katana' in activity_str:
+                  print 'Login succeeded'
+                  logged_in = True
+                  # Because the Facebook authorization dialog is primarily a
+                  # WebView, we must click on x, y coordinates of the Continue
+                  # button instead of looking at the hierarchy.
+                  device.shell('input tap ' + str(int(.5 * MAX_X)) + ' ' +
+                               str(int(.82 * MAX_Y)))
+                  consec_back_presses = 0
+                  # Make sure we leave the Facebook app before doing anything
+                  # else.
+                  perform_vc_dump(vc)
+                else:
+                  print 'Could not log into Facebook.'
+                  print (activity_str + ' ' +
+                         str(obtain_frag_list(package_name, device)))
+          if not found_login:
+            c = curr_view.clickable[0]
+            print('Clicking {} {}, ({},{})'.format(c.getUniqueId(),
+                                                   c.getClass(), c.getX(),
+                                                   c.getY()))
+            c.touch()
+            consec_back_presses = 0
+            prev_clicked = c.getUniqueId()
+            curr_view.clickable.remove(c)
         except UnicodeEncodeError:
           print '***Unicode coordinates'
-
-        del curr_view.clickable[-1]
-
       else:
         print 'Removing ' + curr_view.get_name() + ' from still_exploring.'
         still_exploring.pop(curr_view.get_name(), 0)
+        consec_back_presses += 1
         print ('Clicking back button, consec_back_presses is ' +
                str(consec_back_presses))
         perform_press_back(device)
-        consec_back_presses += 1
         prev_view = curr_view
         prev_clicked = BACK_BUTTON
 
@@ -502,14 +548,14 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
           num_dumps += 1
 
         if num_dumps == MAX_DUMPS:
-          return
+          break
 
         activity = obtain_activity_name(package_name, device)
         if activity is EXITED_APP:
           activity = return_to_app_activity(package_name, device)
           if activity is EXITED_APP:
             print 'Clicking back took us out of the app'
-            return
+            break
 
         if vc_dump:
           curr_view = obtain_curr_view(activity, package_name, vc_dump,
@@ -525,6 +571,8 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
       perform_press_back(device)
       consec_back_presses += 1
 
+  return logged_in
+
 
 def crawl_package(vc, device, package_name=None):
   """Crawl entire package. Explore blindly, then return to unexplored views."""
@@ -535,6 +583,16 @@ def crawl_package(vc, device, package_name=None):
   # found to be unreachable.)
   view_map = {}
   still_exploring = {}
+
+  # Stores if we have logged in during this crawl/session. If the app has
+  # previously logged into an app or service (and can skip the authorization
+  # process), we will be unable to detect that.
+  # TODO(afergan): Is there a way to determine if we've already authorized a
+  # media service? Clicking on Facebook once we've already authorized it just
+  # pops up a momentary dialog then goes to the next screen, so it would be
+  # difficult to differentiate an authorized login from a normal button that
+  # happened to be named "facebook_login" or a failed login.
+  logged_in = False
 
   if not package_name:
     package_name = obtain_package_name(device)
@@ -549,8 +607,8 @@ def crawl_package(vc, device, package_name=None):
     return
   root_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
                                still_exploring, device)
-  crawl_until_exit(vc, device, package_name, view_map, still_exploring,
-                   root_view)
+  logged_in = crawl_until_exit(vc, device, package_name, view_map,
+                               still_exploring, root_view, logged_in)
 
   print 'Root is ' + root_view.get_name()
   print 'We have seen ' + str(len(view_map)) + ' unique views.'
@@ -609,8 +667,8 @@ def crawl_package(vc, device, package_name=None):
         # If we made it to our intended View, or at least a View with
         # unexplored components, start crawling again.
         print 'Crawling again'
-        crawl_until_exit(vc, device, package_name, view_map, still_exploring,
-                         curr_view)
+        logged_in = crawl_until_exit(vc, device, package_name, view_map,
+                                     still_exploring, curr_view, logged_in)
         print ('Done with the crawl. Still ' + str(len(v.clickable)) +
                ' components to click for this View.')
       else:

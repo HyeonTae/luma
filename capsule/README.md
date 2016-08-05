@@ -88,6 +88,12 @@ the luma and luma.third\_party repositories by adding the luma manifest to your
 After this, you will need to add the AndroidViewClient to your PYTHONPATH:
 ``export PYTHONPATH=$PYTHONPATH:$JIRI_ROOT/release/projects/luma_third_party/AndroidViewClient/``
 
+### Facebook Login
+
+Capsule automate Facebook logins to allow the crawler to get through login
+procedures. If the Facebook app is installed on the device and logged into an
+account, Capsule will prioritize clicking on a Facebook login button.
+
 ## Contributors
 
 We are happy to accept contributions. However, Vanadium does not accept pull

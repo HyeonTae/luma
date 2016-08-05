@@ -23,6 +23,7 @@ HELP_MSG = ('Capsule usage:\n'
             'directory.\n'
             '-f or --file /[PATH TO FILE]/list.txt -- load text file of '
             'package names on device and crawl them.\n'
+            '-r or --recrawl -- recrawl already explored apps.\n'
             '-h or --help -- help, list options')
 
 # PyDev sets PYTHONPATH, use it
