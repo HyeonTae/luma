@@ -96,13 +96,13 @@ def perform_vc_dump(vc):
     return None
 
 
-def return_to_app_activity(package_name, device):
+def return_to_app_activity(package_name, device, vc):
   """Tries to press back a number of times to return to the app."""
 
   # Returns the name of the activity, or EXITED_APP if it could not return.
   for press_num in range(0, NUM_BACK_PRESSES):
     perform_press_back(device)
-    activity = obtain_activity_name(package_name, device)
+    activity = obtain_activity_name(package_name, device, vc)
     if activity != EXITED_APP:
       print 'Returned to app'
       return activity
@@ -113,13 +113,26 @@ def return_to_app_activity(package_name, device):
   return EXITED_APP
 
 
-def obtain_activity_name(package_name, device):
-  """Gets the current running activity of the package."""
-  # TODO(afergan): See if we can consolidate this with obtain_frag_list, but
-  # still make sure that the current app has focus.
-  # TODO(afergan): Check for Windows compatibility.
+def obtain_focus_and_allow_permissions(device, vc):
+  """Accepts any permission prompts and returns the current focus."""
   activity_str = device.shell('dumpsys window windows '
                               '| grep -E \'mCurrentFocus\'')
+
+  # If the app is prompting for permissions, automatically accept them.
+  while 'com.android.packageinstaller' in activity_str:
+    vc.dump(window='-1')
+    vc.findViewById('id/permission_allow_button').touch()
+    time.sleep(2)
+    activity_str = device.shell('dumpsys window windows '
+                                '| grep -E \'mCurrentFocus\'')
+
+  return activity_str
+
+
+def obtain_activity_name(package_name, device, vc):
+  """Gets the current running activity of the package."""
+
+  activity_str = obtain_focus_and_allow_permissions(device, vc)
 
   # If a popup menu has captured the focus, the focus will be in the format
   # mCurrentFocus=Window{8f1328e u0 PopupWindow:53a5957}
@@ -154,10 +167,10 @@ def obtain_frag_list(package_name, device):
   return []
 
 
-def obtain_package_name(device):
+def obtain_package_name(device, vc):
   """Gets the package name of the current focused window."""
-  activity_str = device.shell('dumpsys window windows '
-                              '| grep -E \'mCurrentFocus\'')
+
+  activity_str = obtain_focus_and_allow_permissions(device, vc)
 
   # The current focus returns a string in the format
   # mCurrentFocus=Window{35f66c3 u0 com.google.zagat/com.google.android.apps.
@@ -168,15 +181,15 @@ def obtain_package_name(device):
   return pkg_name
 
 
-def is_active_view(stored_view, package_name, device):
+def is_active_view(stored_view, package_name, device, vc):
   """Check if the current View name matches a stored View."""
   print str(obtain_frag_list(package_name, device))
   print ('Curr activity / frag list: ' +
-         obtain_activity_name(package_name, device) + ' ' +
+         obtain_activity_name(package_name, device, vc) + ' ' +
          str(obtain_frag_list(package_name, device)))
   print ('Stored activity + frag list: ' + stored_view.activity + ' ' +
          str(stored_view.frag_list))
-  return (obtain_activity_name(package_name, device) == stored_view.activity
+  return (obtain_activity_name(package_name, device, vc) == stored_view.activity
           and Counter(obtain_frag_list(package_name, device)) ==
           Counter(stored_view.frag_list))
 
@@ -393,17 +406,17 @@ def follow_path_to_view(path, goal, package_name, device, view_map,
                         still_exploring, vc):
   """Attempt to follow path all the way to the desired view."""
   if not path:
-    return is_active_view(view_map.values()[0], package_name, device)
+    return is_active_view(view_map.values()[0], package_name, device, vc)
 
   for p in path:
     # We can be lenient here and only evaluate if the activity and fragments are
     # the same (and allow the view hierarchy to have changed a little bit),
     # since we then evaluate if the clickable component we want is in the View.
-    if not is_active_view(view_map.get(p[0]), package_name, device):
+    if not is_active_view(view_map.get(p[0]), package_name, device, vc):
       print 'Toto, I\'ve a feeling we\'re not on the right path anymore.'
       p_idx = path.index(p)
       if p_idx > 0:
-        activity = obtain_activity_name(package_name, device)
+        activity = obtain_activity_name(package_name, device, vc)
 
         if activity is EXITED_APP:
           return False
@@ -433,7 +446,7 @@ def follow_path_to_view(path, goal, package_name, device, view_map,
         return False
 
   # Make sure that we end up at the View that we want.
-  return is_active_view(goal, package_name, device)
+  return is_active_view(goal, package_name, device, vc)
 
 
 def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
@@ -454,10 +467,10 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
     if device.isKeyboardShown():
       perform_press_back(device)
 
-    activity = obtain_activity_name(package_name, device)
+    activity = obtain_activity_name(package_name, device, vc)
 
     if activity is EXITED_APP:
-      activity = return_to_app_activity(package_name, device)
+      activity = return_to_app_activity(package_name, device, vc)
       if activity is EXITED_APP:
         print 'Current view is not app and we cannot return'
         break
@@ -550,9 +563,9 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
         if num_dumps == MAX_DUMPS:
           break
 
-        activity = obtain_activity_name(package_name, device)
+        activity = obtain_activity_name(package_name, device, vc)
         if activity is EXITED_APP:
-          activity = return_to_app_activity(package_name, device)
+          activity = return_to_app_activity(package_name, device, vc)
           if activity is EXITED_APP:
             print 'Clicking back took us out of the app'
             break
@@ -595,14 +608,14 @@ def crawl_package(vc, device, package_name=None):
   logged_in = False
 
   if not package_name:
-    package_name = obtain_package_name(device)
+    package_name = obtain_package_name(device, vc)
 
   # Store the root View
   print 'Storing root'
   vc_dump = perform_vc_dump(vc)
   if not vc_dump:
     return
-  activity = obtain_activity_name(package_name, device)
+  activity = obtain_activity_name(package_name, device, vc)
   if activity == EXITED_APP:
     return
   root_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
@@ -639,14 +652,14 @@ def crawl_package(vc, device, package_name=None):
       reached_view = follow_path_to_view(path, v, package_name, device,
                                          view_map, still_exploring, vc)
     else:
-      reached_view = is_active_view(v, package_name, device)
+      reached_view = is_active_view(v, package_name, device, vc)
       if reached_view:
         print 'At root view: ' + str(reached_view)
       else:
         print 'No path to ' + v.get_name()
 
     vc_dump = perform_vc_dump(vc)
-    activity = obtain_activity_name(package_name, device)
+    activity = obtain_activity_name(package_name, device, vc)
 
     if reached_view:
       print 'Reached the view we were looking for.'
