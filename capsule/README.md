@@ -88,7 +88,7 @@ the luma and luma.third\_party repositories by adding the luma manifest to your
 
 After this, you will need to add the AndroidViewClient to your PYTHONPATH:
 
-``export PYTHONPATH=$PYTHONPATH:$JIRI_ROOT/release/projects/luma_third_party/AndroidViewClient/``
+``$ export PYTHONPATH=$PYTHONPATH:$JIRI_ROOT/release/projects/luma_third_party/AndroidViewClient/``
 
 ### Facebook Login
 
