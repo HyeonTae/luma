@@ -82,10 +82,12 @@ However, if you have
 [installed Vanadium](https://vanadium.github.io/installation/), you can import
 the luma and luma.third\_party repositories by adding the luma manifest to your
 .jiri_manifest file or adding it to your manifest from the command line:
+
 ``$ jiri import -name=manifest luma https://vanadium.googlesource.com/manifest
 && jiri update``
 
 After this, you will need to add the AndroidViewClient to your PYTHONPATH:
+
 ``export PYTHONPATH=$PYTHONPATH:$JIRI_ROOT/release/projects/luma_third_party/AndroidViewClient/``
 
 ### Facebook Login
