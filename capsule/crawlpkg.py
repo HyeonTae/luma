@@ -46,6 +46,7 @@ MAX_LAYOUTS = 40
 # We use this to prevent loops that can occur when back button behavior creates
 # a cycle.
 MAX_CONSEC_BACK_PRESSES = 10
+MAX_FB_AUTH_TAPS = 5
 
 
 def extract_between(text, sub1, sub2, nth=1):
@@ -120,7 +121,8 @@ def obtain_focus_and_allow_permissions(device, vc):
 
   # If the app is prompting for permissions, automatically accept them.
   while 'com.android.packageinstaller' in activity_str:
-    vc.dump(window='-1')
+    print 'Allowing a permission.'
+    perform_vc_dump(vc)
     vc.findViewById('id/permission_allow_button').touch()
     time.sleep(2)
     activity_str = device.shell('dumpsys window windows '
@@ -147,6 +149,7 @@ def obtain_activity_name(package_name, device, vc):
     # We only want the text between the final period and the closing bracket.
     return extract_between(activity_str, '.', '}', -1)
 
+  print 'Not in package. Current activity string is ' + activity_str
   return EXITED_APP
 
 
@@ -442,7 +445,7 @@ def follow_path_to_layout(path, goal, package_name, device, layout_map,
                              if view.getUniqueId() == click_id), None)
         if click_target:
           print 'Clicking on ' + click_target.getUniqueId()
-          click_target.touch()
+          device.touch(click_target.getX(), click_target.getY())
       else:
         print ('Could not find the right view to click on, was looking '
                'for ' + click_id)
@@ -499,8 +502,10 @@ def crawl_until_exit(vc, device, package_name, layout_map, still_exploring,
             for click in curr_layout.clickable:
               click_id = click.getUniqueId().lower()
               if (click.getClass() == 'com.facebook.widget.LoginButton' or
-                  ('facebook' in click_id and 'login' in click_id) or
-                  ('fb' in click_id and 'login' in click_id)):
+                  ('facebook' in click_id) or ('fb' in click_id and
+                                               any(s in click_id for s in
+                                                   ['login', 'log_in', 'signin',
+                                                    'sign_in']))):
                 found_login = True
                 print 'Trying to log into Facebook.'
                 # Sometimes .touch() doesn't work
@@ -511,34 +516,82 @@ def crawl_until_exit(vc, device, package_name, layout_map, still_exploring,
                 curr_layout.clickable.remove(click)
                 time.sleep(10)
                 # Make sure the new screen is loaded by waiting for the dump.
-                fb_dump = perform_vc_dump(vc)
-                if fb_dump:
-                  for f in fb_dump:
-                    print f.getUniqueId() + str(f.getXY())
-                activity_str = device.shell('dumpsys window windows '
-                                            '| grep -E \'mCurrentFocus\'')
+                perform_vc_dump(vc)
+                activity_str = obtain_focus_and_allow_permissions(device, vc)
+                print activity_str
                 if 'com.facebook.katana' in activity_str:
-                  print 'Login succeeded'
                   logged_in = True
                   # Because the Facebook authorization dialog is primarily a
-                  # WebLayout, we must click on x, y coordinates of the Continue
+                  # WebView, we must click on x, y coordinates of the Continue
                   # button instead of looking at the hierarchy.
                   device.shell('input tap ' + str(int(.5 * MAX_X)) + ' ' +
                                str(int(.82 * MAX_Y)))
                   consec_back_presses = 0
-                  # Make sure we leave the Facebook app before doing anything
-                  # else.
                   perform_vc_dump(vc)
+                  activity_str = obtain_focus_and_allow_permissions(device, vc)
+
+                  # Authorize app to post to Facebook (or any other action).
+                  num_taps = 0
+                  while ('ProxyAuthDialog' in activity_str and
+                         num_taps < MAX_FB_AUTH_TAPS):
+                    print 'Facebook authorization #' + str(num_taps)
+                    device.shell('input tap ' + str(int(.90 * MAX_X)) + ' ' +
+                                 str(int(.95 * MAX_Y)))
+                    num_taps += 1
+                    time.sleep(3)
+                    activity_str = obtain_focus_and_allow_permissions(
+                        device, vc)
+
                 else:
                   print 'Could not log into Facebook.'
                   print (activity_str + ' ' +
                          str(obtain_frag_list(package_name, device)))
+              elif (('gplus' in click_id or 'google' in click_id) and
+                    any(s in click_id for s in ['login', 'log_in', 'signin',
+                                                'sign_in'])):
+                found_login = True
+                print 'Trying to log into Google+.'
+                device.touch(str(click.getX()), str(click.getY()))
+                consec_back_presses = 0
+                prev_clicked = click.getUniqueId()
+                curr_layout.clickable.remove(click)
+                time.sleep(4)
+                # Make sure the new screen is loaded by waiting for the dump.
+                perform_vc_dump(vc)
+
+                # Some apps want to access contacts to get user information.
+                activity_str = obtain_focus_and_allow_permissions(device, vc)
+
+                print activity_str
+                if 'com.google.android.gms' in activity_str:
+                  print 'Logging into G+'
+                  # Some apps ask to pick the Google user before logging in.
+                  if 'AccountChipAccountPickerActivity' in activity_str:
+                    print 'Selecting user.'
+                    v = vc.findViewById('id/account_profile_picture')
+                    if v:
+                      device.touch(v.getX(), v.getY())
+                      print 'selected user.'
+                      time.sleep(4)
+                      perform_vc_dump(vc)
+                    activity_str = obtain_focus_and_allow_permissions(
+                        device, vc)
+                    print activity_str
+                  if 'GrantCredentialsWithAclActivity' in activity_str:
+                    print 'Granting credentials.'
+                    perform_vc_dump(vc)
+                    v = vc.findViewById('id/accept_button')
+                    if v:
+                      print 'granting'
+                      device.touch(v.getX(), v.getY())
+                      time.sleep(4)
+
           if not found_login:
             c = curr_layout.clickable[0]
             print('Clicking {} {}, ({},{})'.format(c.getUniqueId(),
                                                    c.getClass(), c.getX(),
                                                    c.getY()))
-            c.touch()
+            device.touch(c.getX(), c.getY())
             consec_back_presses = 0
             prev_clicked = c.getUniqueId()
             curr_layout.clickable.remove(c)
