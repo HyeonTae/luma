@@ -12,7 +12,7 @@ import subprocess
 import time
 
 from com.dtmilano.android.common import obtainAdbPath
-from view import View
+from layout import Layout
 
 # https://material.google.com/layout/structure.html#structure-system-bars
 NAVBAR_DP_HEIGHT = 48
@@ -40,9 +40,9 @@ NUM_BACK_PRESSES = 3
 MAX_DUMPS = 6
 # To prevent getting stuck in apps with a large number of UIs or dynamic content
 # that can change the view hierarchy each time it's loaded, we limit the number
-# of crawls to perform and max number of views to store per app.
+# of crawls to perform and max number of layouts to store per app.
 MAX_CRAWLS = 20
-MAX_VIEWS = 40
+MAX_LAYOUTS = 40
 # We use this to prevent loops that can occur when back button behavior creates
 # a cycle.
 MAX_CONSEC_BACK_PRESSES = 10
@@ -151,7 +151,7 @@ def obtain_activity_name(package_name, device, vc):
 
 
 def obtain_frag_list(package_name, device):
-  """Gets the list of fragments in the current view."""
+  """Gets the list of fragments in the current layout."""
   activity_dump = device.shell('dumpsys activity ' + package_name)
   frag_dump = re.findall('Added Fragments:(.*?)FragmentManager', activity_dump,
                          re.DOTALL)
@@ -181,20 +181,21 @@ def obtain_package_name(device, vc):
   return pkg_name
 
 
-def is_active_view(stored_view, package_name, device, vc):
-  """Check if the current View name matches a stored View."""
+def is_active_layout(stored_layout, package_name, device, vc):
+  """Check if the current Layout name matches a stored Layout."""
   print str(obtain_frag_list(package_name, device))
   print ('Curr activity / frag list: ' +
          obtain_activity_name(package_name, device, vc) + ' ' +
          str(obtain_frag_list(package_name, device)))
-  print ('Stored activity + frag list: ' + stored_view.activity + ' ' +
-         str(stored_view.frag_list))
-  return (obtain_activity_name(package_name, device, vc) == stored_view.activity
-          and Counter(obtain_frag_list(package_name, device)) ==
-          Counter(stored_view.frag_list))
+  print ('Stored activity + frag list: ' + stored_layout.activity + ' ' +
+         str(stored_layout.frag_list))
+  return (obtain_activity_name(package_name, device, vc) ==
+          stored_layout.activity and Counter(obtain_frag_list(package_name,
+                                                              device)) ==
+          Counter(stored_layout.frag_list))
 
 
-def save_view_data(package_name, activity, frag_list, vc_dump):
+def save_layout_data(package_name, activity, frag_list, vc_dump):
   """Stores the view hierarchy and screenshots with unique filenames."""
   # Returns the path to the screenshot and the file number.
 
@@ -216,25 +217,25 @@ def save_view_data(package_name, activity, frag_list, vc_dump):
         directory,
         activity + '-' + first_frag + '-' + str(file_num) + '.json')
 
-  view_info = {}
-  view_info['hierarchy'] = {}
-  view_info['fragmentList'] = frag_list
+  layout_info = {}
+  layout_info['hierarchy'] = {}
+  layout_info['fragmentList'] = frag_list
 
-  for component in vc_dump:
+  for view in vc_dump:
     # Because the children and parent are each instances, they are not JSON
     # serializable. We replace them with just the ids of the instances (and
     # discard the device info).
-    dict_copy = copy.copy(component.__dict__)
+    dict_copy = copy.copy(view.__dict__)
     del dict_copy['device']
     if dict_copy['parent']:
       dict_copy['parent'] = dict_copy['parent'].getUniqueId()
     dict_copy['children'] = []
-    for child in component.__dict__['children']:
+    for child in view.__dict__['children']:
       dict_copy['children'].append(child.getUniqueId())
-    view_info['hierarchy'][component.getUniqueId()] = dict_copy
+    layout_info['hierarchy'][view.getUniqueId()] = dict_copy
 
   with open(dump_file, 'w') as out_file:
-    json.dump(view_info, out_file, indent=2)
+    json.dump(layout_info, out_file, indent=2)
 
   screen_name = activity + '-' + first_frag + '-' + str(file_num) + '.png'
   screen_path = os.path.join(directory, screen_name)
@@ -247,172 +248,174 @@ def save_view_data(package_name, activity, frag_list, vc_dump):
   return screen_path, file_num
 
 
-def save_ui_flow_relationships(view_to_save, package_name):
-  """Dumps to file the click dictionary and preceding Views."""
+def save_ui_flow_relationships(layout_to_save, package_name):
+  """Dumps to file the click dictionary and preceding Layouts."""
   directory = (
       os.path.dirname(os.path.abspath(__file__)) + '/data/' + package_name)
-  click_file = os.path.join(directory, view_to_save.get_name() + '-clicks.json')
+  click_file = os.path.join(directory, layout_to_save.get_name() +
+                            '-clicks.json')
   click_info = {}
-  click_info['click_dict'] = view_to_save.click_dict
-  click_info['preceding'] = view_to_save.preceding
+  click_info['click_dict'] = layout_to_save.click_dict
+  click_info['preceding'] = layout_to_save.preceding
   with open(click_file, 'w') as out_file:
     json.dump(click_info, out_file, indent=2)
 
 
-def find_view_in_map(activity, frag_list, vc_dump, view_map):
-  """Finds the  current View in the view array (empty if new View)."""
+def find_layout_in_map(activity, frag_list, vc_dump, layout_map):
+  """Finds the  current Layout in the layout array (empty if new Layout)."""
   # TODO(afergan): Consider creating another map indexed by the values compared
   # in is_duplicate so that this comparison is O(1).
-  for val in view_map.values():
+  for val in layout_map.values():
     if val.is_duplicate(activity, frag_list, vc_dump):
       return val
   return None
 
 
-def create_view(package_name, vc_dump, activity, frag_list):
-  """Stores the current view in the View data structure."""
-  screenshot, num = save_view_data(package_name, activity, frag_list, vc_dump)
+def create_layout(package_name, vc_dump, activity, frag_list):
+  """Stores the current layout in the Layout data structure."""
+  screenshot, num = save_layout_data(package_name, activity, frag_list, vc_dump)
 
   # If we think the first element in the view hierarchy is a back button, move
   # it to the end of the list so that we click on it last.
   if 'back' in vc_dump[0].getUniqueId().lower():
     vc_dump.append(vc_dump.pop())
 
-  v = View(activity, frag_list, vc_dump, screenshot, num)
+  l = Layout(activity, frag_list, vc_dump, screenshot, num)
 
-  for component in v.hierarchy:
-    # TODO(afergan): For now, only click on certain components, and allow custom
-    # components. Evaluate later if this is worth it or if we should just click
+  for view in l.hierarchy:
+    # TODO(afergan): For now, only click on certain views, and allow custom
+    # views. Evaluate later if this is worth it or if we should just click
     # on everything attributed as clickable.
     try:
-      if (component.isClickable() and component.getVisibility() == VISIBLE and
-          component.getX() >= 0 and component.getX() <= MAX_X and
-          component.getWidth() > 0 and
-          component.getY() >= STATUS_BAR_HEIGHT and component.getY() <= MAX_Y
-          and component.getHeight() > 0):
-        print (component.getId() + ' ' + component.getClass()
-               + ' ' + str(component.getXY()) + '-- will be clicked')
-        v.clickable.append(component)
+      if (view.isClickable() and view.getVisibility() == VISIBLE and
+          view.getX() >= 0 and view.getX() <= MAX_X and
+          view.getWidth() > 0 and
+          view.getY() >= STATUS_BAR_HEIGHT and view.getY() <= MAX_Y
+          and view.getHeight() > 0):
+        print (view.getId() + ' ' + view.getClass()
+               + ' ' + str(view.getXY()) + '-- will be clicked')
+        l.clickable.append(view)
     except AttributeError:
-      print 'Could not get component attributes.'
-  return v
+      print 'Could not get view attributes.'
+  return l
 
 
-def link_ui_views(prev_view, curr_view, prev_clicked, package_name):
-  """Stores the relationship between prev_view and curr_view."""
+def link_ui_layouts(prev_layout, curr_layout, prev_clicked, package_name):
+  """Stores the relationship between prev_layout and curr_layout."""
 
-  # We store in the View information that the last view links to the current
-  # view, and that the current view can be reached from the last view. We use
-  # the id of the last clicked element as the dictionary key so that we know
-  # which element leads from view to view.
+  # We store in the Layout information that the last layout links to the current
+  # layout, and that the current layout can be reached from the last layout. We
+  # use the id of the last clicked element as the dictionary key so that we know
+  # which element leads from layout to layout.
 
   if prev_clicked:
     print 'Previous clicked: ' + prev_clicked
-    prev_view.click_dict[prev_clicked] = curr_view.get_name()
-    curr_view.preceding.append(prev_view.get_name())
+    prev_layout.click_dict[prev_clicked] = curr_layout.get_name()
+    curr_layout.preceding.append(prev_layout.get_name())
   else:
     print 'Lost track of last clicked!'
 
   # TODO(afergan): Remove this later. For debugging, we print the clicks after
-  # each click to a new view is recorded. However, this results in a lot of
+  # each click to a new layout is recorded. However, this results in a lot of
   # repeated writes to the same file. In the future, we can just write each
   # file once we're done crawling the app.
-  save_ui_flow_relationships(prev_view, package_name)
-  save_ui_flow_relationships(curr_view, package_name)
+  save_ui_flow_relationships(prev_layout, package_name)
+  save_ui_flow_relationships(curr_layout, package_name)
 
 
-def obtain_curr_view(activity, package_name, vc_dump, view_map, still_exploring,
-                     device):
-  """Extracts UI info and return the current View."""
+def obtain_curr_layout(activity, package_name, vc_dump, layout_map,
+                       still_exploring, device):
+  """Extracts UI info and return the current Layout."""
 
   # Gets the current UI info. If we have seen this UI before, return the
-  # existing View. If not, create a new View and save it to the view array.
+  # existing Layout. If not, create a new Layout and save it to the layout
+  # array.
 
   frag_list = obtain_frag_list(package_name, device)
-  view = find_view_in_map(activity, frag_list, vc_dump, view_map)
+  layout = find_layout_in_map(activity, frag_list, vc_dump, layout_map)
 
-  if view:
+  if layout:
     print 'Found duplicate'
-    return view
+    return layout
   else:
-    print 'New view'
-    new_view = create_view(package_name, vc_dump, activity, frag_list)
-    # Make sure we have a valid View. This will be false if we get a socket
+    print 'New layout'
+    new_layout = create_layout(package_name, vc_dump, activity, frag_list)
+    # Make sure we have a valid Layout. This will be false if we get a socket
     # timeout.
-    if new_view.get_name():
-      view_map[new_view.get_name()] = new_view
-      # If there are clickable components, explore this new View.
-      if new_view.clickable:
-        still_exploring[new_view.get_name()] = new_view
-        print ('Added ' + new_view.get_name() + ' to still_exploring. Length '
+    if new_layout.get_name():
+      layout_map[new_layout.get_name()] = new_layout
+      # If there are clickable views, explore this new Layout.
+      if new_layout.clickable:
+        still_exploring[new_layout.get_name()] = new_layout
+        print ('Added ' + new_layout.get_name() + ' to still_exploring. Length '
                'is now ' + str(len(still_exploring)))
-      return new_view
+      return new_layout
 
-  print 'Could not obtain current view.'
+  print 'Could not obtain current layout.'
   return None
 
 
-def find_component_to_lead_to_view(view1, view2):
-  """Given 2 Views, return the component of view 1 that leads to view 2."""
+def find_view_to_lead_to_layout(layout1, layout2):
+  """Given 2 Layouts, return the view of layout 1 that leads to layout 2."""
 
   try:
-    return view1.click_dict.keys()[view1.click_dict.values().index(
-        view2.get_name())]
+    return layout1.click_dict.keys()[layout1.click_dict.values().index(
+        layout2.get_name())]
   except ValueError:
-    print '*** Could not find a component to link to the succeeding View!'
+    print '*** Could not find a view to link to the succeeding Layout!'
 
   return FAILED_FINDING_NAME
 
 
-def find_path_from_root_to_view(view, view_map):
-  """Given a View, finds the path of UI elements to that View."""
+def find_path_from_root_to_layout(layout, layout_map):
+  """Given a Layout, finds the path of UI elements to that Layout."""
 
   path = []
-  curr_path_view = view
+  curr_path_layout = layout
   # If there is a splash screen or intro screen that is stored, we could have
-  # multiple Views that do not have preceding Views.
+  # multiple Layouts that do not have preceding Layouts.
 
-  while curr_path_view.preceding:
-    print 'Looking for path from ' + view.get_name()
-    path_views = [p[0] for p in path]
-    succeeding_view = curr_path_view
+  while curr_path_layout.preceding:
+    print 'Looking for path from ' + layout.get_name()
+    path_layouts = [p[0] for p in path]
+    succeeding_layout = curr_path_layout
     # TODO(afergan): Using the first element in preceding doesn't ensure
-    # shortest path. Is it worth keeping track of the depth of every View to
+    # shortest path. Is it worth keeping track of the depth of every Layout to
     # create the shortest path?
-    curr_path_view = None
-    for pre in succeeding_view.preceding:
-      if pre not in path_views:
-        curr_path_view = view_map.get(pre)
+    curr_path_layout = None
+    for pre in succeeding_layout.preceding:
+      if pre not in path_layouts:
+        curr_path_layout = layout_map.get(pre)
         break
       else:
         return path
 
-    component = find_component_to_lead_to_view(curr_path_view, succeeding_view)
+    view = find_view_to_lead_to_layout(curr_path_layout, succeeding_layout)
 
-    # This should not happen since if we store the predecessor of one View, we
-    # also store which component of the predecessor leads to that View. However,
-    # if it does, we can try exploring other preceding views
-    if component == FAILED_FINDING_NAME:
+    # This should not happen since if we store the predecessor of one Layout, we
+    # also store which view of the predecessor leads to that Layout. However,
+    # if it does, we can try exploring other preceding layouts
+    if view == FAILED_FINDING_NAME:
       return []
     else:
-      print ('Inserting ' + component + ', ' + curr_path_view.get_name()
+      print ('Inserting ' + view + ', ' + curr_path_layout.get_name()
              + ' to path')
-      path.insert(0, (curr_path_view.get_name(), component))
+      path.insert(0, (curr_path_layout.get_name(), view))
 
   return path
 
 
-def follow_path_to_view(path, goal, package_name, device, view_map,
-                        still_exploring, vc):
-  """Attempt to follow path all the way to the desired view."""
+def follow_path_to_layout(path, goal, package_name, device, layout_map,
+                          still_exploring, vc):
+  """Attempt to follow path all the way to the desired layout."""
   if not path:
-    return is_active_view(view_map.values()[0], package_name, device, vc)
+    return is_active_layout(layout_map.values()[0], package_name, device, vc)
 
   for p in path:
     # We can be lenient here and only evaluate if the activity and fragments are
-    # the same (and allow the view hierarchy to have changed a little bit),
-    # since we then evaluate if the clickable component we want is in the View.
-    if not is_active_view(view_map.get(p[0]), package_name, device, vc):
+    # the same (and allow the layout hierarchy to have changed a little bit),
+    # since we then evaluate if the clickable view we want is in the Layout.
+    if not is_active_layout(layout_map.get(p[0]), package_name, device, vc):
       print 'Toto, I\'ve a feeling we\'re not on the right path anymore.'
       p_idx = path.index(p)
       if p_idx > 0:
@@ -421,11 +424,11 @@ def follow_path_to_view(path, goal, package_name, device, view_map,
         if activity is EXITED_APP:
           return False
         vc_dump = perform_vc_dump(vc)
-        curr_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
-                                     still_exploring, device)
-        prev_view = view_map.get(path[p_idx - 1][0])
-        prev_clicked = view_map.get(path[p_idx - 1][1])
-        link_ui_views(prev_view, curr_view, prev_clicked, package_name)
+        curr_layout = obtain_curr_layout(activity, package_name, vc_dump,
+                                         layout_map, still_exploring, device)
+        prev_layout = layout_map.get(path[p_idx - 1][0])
+        prev_clicked = layout_map.get(path[p_idx - 1][1])
+        link_ui_layouts(prev_layout, curr_layout, prev_clicked, package_name)
 
       return False
 
@@ -435,34 +438,34 @@ def follow_path_to_view(path, goal, package_name, device, view_map,
     else:
       vc_dump = perform_vc_dump(vc)
       if vc_dump:
-        click_target = next((component for component in vc_dump
-                             if component.getUniqueId() == click_id), None)
+        click_target = next((view for view in vc_dump
+                             if view.getUniqueId() == click_id), None)
         if click_target:
           print 'Clicking on ' + click_target.getUniqueId()
           click_target.touch()
       else:
-        print ('Could not find the right component to click on, was looking '
+        print ('Could not find the right view to click on, was looking '
                'for ' + click_id)
         return False
 
-  # Make sure that we end up at the View that we want.
-  return is_active_view(goal, package_name, device, vc)
+  # Make sure that we end up at the Layout that we want.
+  return is_active_layout(goal, package_name, device, vc)
 
 
-def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
-                     start_view, logged_in):
-  """Main crawler loop. Evaluates views, store new views, and click on items."""
+def crawl_until_exit(vc, device, package_name, layout_map, still_exploring,
+                     start_layout, logged_in):
+  """Main crawler loop. Evaluates layouts, stores new data, and clicks views."""
   print 'Logged in: ' + str(logged_in)
-  curr_view = start_view
+  curr_layout = start_layout
   prev_clicked = ''
   consec_back_presses = 0
 
-  while (len(view_map) < MAX_VIEWS and
+  while (len(layout_map) < MAX_LAYOUTS and
          consec_back_presses < MAX_CONSEC_BACK_PRESSES):
 
-    # If last click opened the keyboard, assume we're in the same view and just
-    # click on the next element. Since opening the keyboard can leave traces of
-    # additional components, don't check if view is duplicate.
+    # If last click opened the keyboard, assume we're in the same layout and
+    # just click on the next element. Since opening the keyboard can leave
+    # traces of additional views, don't check if layout is duplicate.
     # TODO(afergan): Is this a safe assumption?
     if device.isKeyboardShown():
       perform_press_back(device)
@@ -472,28 +475,28 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
     if activity is EXITED_APP:
       activity = return_to_app_activity(package_name, device, vc)
       if activity is EXITED_APP:
-        print 'Current view is not app and we cannot return'
+        print 'Current layout is not app and we cannot return'
         break
       else:
         prev_clicked = BACK_BUTTON
 
-    prev_view = curr_view
+    prev_layout = curr_layout
     vc_dump = perform_vc_dump(vc)
     if vc_dump:
-      curr_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
-                                   still_exploring, device)
-      print 'Curr view: ' + curr_view.get_name()
-      if not prev_view.is_duplicate_view(curr_view):
-        print 'At a diff view!'
-        link_ui_views(prev_view, curr_view, prev_clicked, package_name)
+      curr_layout = obtain_curr_layout(activity, package_name, vc_dump,
+                                       layout_map, still_exploring, device)
+      print 'Curr layout: ' + curr_layout.get_name()
+      if not prev_layout.is_duplicate_layout(curr_layout):
+        print 'At a diff layout!'
+        link_ui_layouts(prev_layout, curr_layout, prev_clicked, package_name)
 
-      print 'Num clickable: ' + str(len(curr_view.clickable))
+      print 'Num clickable: ' + str(len(curr_layout.clickable))
 
-      if curr_view.clickable:
+      if curr_layout.clickable:
         try:
           found_login = False
           if not logged_in:
-            for click in curr_view.clickable:
+            for click in curr_layout.clickable:
               click_id = click.getUniqueId().lower()
               if (click.getClass() == 'com.facebook.widget.LoginButton' or
                   ('facebook' in click_id and 'login' in click_id) or
@@ -505,7 +508,7 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
                              ' ' + str(click.getY()))
                 consec_back_presses = 0
                 prev_clicked = click.getUniqueId()
-                curr_view.clickable.remove(click)
+                curr_layout.clickable.remove(click)
                 time.sleep(10)
                 # Make sure the new screen is loaded by waiting for the dump.
                 fb_dump = perform_vc_dump(vc)
@@ -518,7 +521,7 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
                   print 'Login succeeded'
                   logged_in = True
                   # Because the Facebook authorization dialog is primarily a
-                  # WebView, we must click on x, y coordinates of the Continue
+                  # WebLayout, we must click on x, y coordinates of the Continue
                   # button instead of looking at the hierarchy.
                   device.shell('input tap ' + str(int(.5 * MAX_X)) + ' ' +
                                str(int(.82 * MAX_Y)))
@@ -531,27 +534,27 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
                   print (activity_str + ' ' +
                          str(obtain_frag_list(package_name, device)))
           if not found_login:
-            c = curr_view.clickable[0]
+            c = curr_layout.clickable[0]
             print('Clicking {} {}, ({},{})'.format(c.getUniqueId(),
                                                    c.getClass(), c.getX(),
                                                    c.getY()))
             c.touch()
             consec_back_presses = 0
             prev_clicked = c.getUniqueId()
-            curr_view.clickable.remove(c)
+            curr_layout.clickable.remove(c)
         except UnicodeEncodeError:
           print '***Unicode coordinates'
       else:
-        print 'Removing ' + curr_view.get_name() + ' from still_exploring.'
-        still_exploring.pop(curr_view.get_name(), 0)
+        print 'Removing ' + curr_layout.get_name() + ' from still_exploring.'
+        still_exploring.pop(curr_layout.get_name(), 0)
         consec_back_presses += 1
         print ('Clicking back button, consec_back_presses is ' +
                str(consec_back_presses))
         perform_press_back(device)
-        prev_view = curr_view
+        prev_layout = curr_layout
         prev_clicked = BACK_BUTTON
 
-        # Make sure we have changed views.
+        # Make sure we have changed layouts.
         vc_dump = perform_vc_dump(vc)
         num_dumps = 0
         while not vc_dump and num_dumps < MAX_DUMPS:
@@ -571,15 +574,16 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
             break
 
         if vc_dump:
-          curr_view = obtain_curr_view(activity, package_name, vc_dump,
-                                       view_map, still_exploring, device)
-          if prev_view.is_duplicate_view(curr_view):
+          curr_layout = obtain_curr_layout(activity, package_name, vc_dump,
+                                           layout_map, still_exploring, device)
+          if prev_layout.is_duplicate_layout(curr_layout):
             # We have nothing left to click, and the back button doesn't change
-            # views.
-            print 'Pressing back keeps at the current view'
+            # layouts.
+            print 'Pressing back keeps at the current layout'
             return
           else:
-            link_ui_views(prev_view, curr_view, 'back button', package_name)
+            link_ui_layouts(prev_layout, curr_layout, 'back button',
+                            package_name)
     else:
       perform_press_back(device)
       consec_back_presses += 1
@@ -588,13 +592,13 @@ def crawl_until_exit(vc, device, package_name, view_map, still_exploring,
 
 
 def crawl_package(vc, device, package_name=None):
-  """Crawl entire package. Explore blindly, then return to unexplored views."""
+  """Crawl package. Explore blindly, then return to unexplored layouts."""
 
   set_device_dimens(vc, device)
-  # View map stores all Views that we have seen, while the still_exploring
-  # consists of only Views that have not been exhaustively explored yet (or
+  # Layout map stores all Layouts that we have seen, while the still_exploring
+  # consists of only Layouts that have not been exhaustively explored yet (or
   # found to be unreachable.)
-  view_map = {}
+  layout_map = {}
   still_exploring = {}
 
   # Stores if we have logged in during this crawl/session. If the app has
@@ -610,7 +614,7 @@ def crawl_package(vc, device, package_name=None):
   if not package_name:
     package_name = obtain_package_name(device, vc)
 
-  # Store the root View
+  # Store the root Layout
   print 'Storing root'
   vc_dump = perform_vc_dump(vc)
   if not vc_dump:
@@ -618,27 +622,27 @@ def crawl_package(vc, device, package_name=None):
   activity = obtain_activity_name(package_name, device, vc)
   if activity == EXITED_APP:
     return
-  root_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
-                               still_exploring, device)
-  logged_in = crawl_until_exit(vc, device, package_name, view_map,
-                               still_exploring, root_view, logged_in)
+  root_layout = obtain_curr_layout(activity, package_name, vc_dump, layout_map,
+                                   still_exploring, device)
+  logged_in = crawl_until_exit(vc, device, package_name, layout_map,
+                               still_exploring, root_layout, logged_in)
 
-  print 'Root is ' + root_view.get_name()
-  print 'We have seen ' + str(len(view_map)) + ' unique views.'
+  print 'Root is ' + root_layout.get_name()
+  print 'We have seen ' + str(len(layout_map)) + ' unique layouts.'
 
   num_crawls = 0
 
-  # Recrawl Views that aren't completely explored.
+  # Recrawl Layouts that aren't completely explored.
   while (still_exploring and num_crawls < MAX_CRAWLS and
-         len(view_map) < MAX_VIEWS):
+         len(layout_map) < MAX_LAYOUTS):
     print 'Crawl #' + str(num_crawls)
     num_crawls += 1
-    print 'We still have ' + str(len(still_exploring)) + ' views to explore.'
+    print 'We still have ' + str(len(still_exploring)) + ' layouts to explore.'
     print 'Still need to explore: ' + str(still_exploring.keys())
-    v = still_exploring.values()[0]
-    print 'Now trying to explore '+  v.get_name()
-    path = find_path_from_root_to_view(v, view_map)
-    print 'Route from root to ' + v.get_name()
+    l = still_exploring.values()[0]
+    print 'Now trying to explore '+  l.get_name()
+    path = find_path_from_root_to_layout(l, layout_map)
+    print 'Route from root to ' + l.get_name()
 
     # Restart the app with its initial screen.
     subprocess.call([ADB_PATH, 'shell', 'am force-stop', package_name])
@@ -649,43 +653,43 @@ def crawl_package(vc, device, package_name=None):
     if path:
       for p in path:
         print p[0] + ' ' + p[1]
-      reached_view = follow_path_to_view(path, v, package_name, device,
-                                         view_map, still_exploring, vc)
+      reached_layout = follow_path_to_layout(path, l, package_name, device,
+                                             layout_map, still_exploring, vc)
     else:
-      reached_view = is_active_view(v, package_name, device, vc)
-      if reached_view:
-        print 'At root view: ' + str(reached_view)
+      reached_layout = is_active_layout(l, package_name, device, vc)
+      if reached_layout:
+        print 'At root layout: ' + str(reached_layout)
       else:
-        print 'No path to ' + v.get_name()
+        print 'No path to ' + l.get_name()
 
     vc_dump = perform_vc_dump(vc)
     activity = obtain_activity_name(package_name, device, vc)
 
-    if reached_view:
-      print 'Reached the view we were looking for.'
+    if reached_layout:
+      print 'Reached the layout we were looking for.'
     else:
-      print ('Did not reach intended view, removing ' + v.get_name() +
+      print ('Did not reach intended layout, removing ' + l.get_name() +
              ' from still_exploring.')
-      still_exploring.pop(v.get_name(), 0)
+      still_exploring.pop(l.get_name(), 0)
 
     if activity == EXITED_APP:
       break
 
     if vc_dump:
-      curr_view = obtain_curr_view(activity, package_name, vc_dump, view_map,
-                                   still_exploring, device)
-      print 'Wanted ' + v.get_name() + ', at ' + curr_view.get_name()
+      curr_layout = obtain_curr_layout(activity, package_name, vc_dump,
+                                       layout_map, still_exploring, device)
+      print 'Wanted ' + l.get_name() + ', at ' + curr_layout.get_name()
 
-      if curr_view.clickable:
-        # If we made it to our intended View, or at least a View with
-        # unexplored components, start crawling again.
+      if curr_layout.clickable:
+        # If we made it to our intended Layout, or at least a Layout with
+        # unexplored views, start crawling again.
         print 'Crawling again'
-        logged_in = crawl_until_exit(vc, device, package_name, view_map,
-                                     still_exploring, curr_view, logged_in)
-        print ('Done with the crawl. Still ' + str(len(v.clickable)) +
-               ' components to click for this View.')
+        logged_in = crawl_until_exit(vc, device, package_name, layout_map,
+                                     still_exploring, curr_layout, logged_in)
+        print ('Done with the crawl. Still ' + str(len(l.clickable)) +
+               ' views to click for this Layout.')
       else:
-        print 'Nothing left to click for ' + v.get_name()
-        still_exploring.pop(v.get_name(), 0)
+        print 'Nothing left to click for ' + l.get_name()
+        still_exploring.pop(l.get_name(), 0)
 
-  print 'No more views to crawl'
+  print 'No more layouts to crawl'

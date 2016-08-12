@@ -2,20 +2,20 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-"""View class definition."""
+"""Layout class definition."""
 
 from collections import Counter
 
 
-class View(object):
-  """Base class for all views.
+class Layout(object):
+  """Base class for all layouts.
 
-  Includes the view hierarchy, screenshot, and information about clickable
-  components and their resulting views.
+  Includes the view hierarchy, screenshot, and information about views and
+  their resulting layouts.
   """
 
   def __init__(self, activity, frag_list, hierarchy, screenshot, num):
-    """Constructor for View class."""
+    """Constructor for Layout class."""
     self.activity = activity
     self.frag_list = frag_list
     self.hierarchy = hierarchy
@@ -26,21 +26,21 @@ class View(object):
     self.click_dict = {}
 
   def get_name(self):
-    """Returns the identifying name of the View."""
+    """Returns the identifying name of the Layout."""
     try:
       if self.frag_list:
         return self.activity + '-' + self.frag_list[0] + '-' + str(self.num)
       else:
         return self.activity + '-NoFrags-' + str(self.num)
     except TypeError:
-      print 'Not a valid view.'
+      print 'Not a valid layout.'
       return ''
 
-  def num_components(self):
+  def num_views(self):
     return len(self.hierarchy)
 
   def is_duplicate(self, activity, frag_list, hierarchy):
-    """Determines if the passed-in information is identical to this View."""
+    """Determines if the passed-in information is identical to this Layout."""
 
     # Since the fragment names are hashable, this is the most efficient method
     # to compare two unordered lists according to
@@ -50,34 +50,34 @@ class View(object):
         Counter(self.frag_list) != Counter(frag_list)):
       return False
 
-    if self.num_components() != len(hierarchy):
+    if self.num_views() != len(hierarchy):
       return False
 
     hierarchy_ids = [h['uniqueId'] for h in self.hierarchy]
-    view_ids = [h['uniqueId'] for h in hierarchy]
+    layout_ids = [h['uniqueId'] for h in hierarchy]
 
-    return Counter(hierarchy_ids) == Counter(view_ids)
+    return Counter(hierarchy_ids) == Counter(layout_ids)
 
-  def is_duplicate_view(self, other_view):
-    """Determines if the passed-in View is identical to this View."""
-    if (self.activity != other_view.activity or
-        Counter(self.frag_list) != Counter(other_view.frag_list)):
+  def is_duplicate_layout(self, other_layout):
+    """Determines if the passed-in Layout is identical to this Layout."""
+    if (self.activity != other_layout.activity or
+        Counter(self.frag_list) != Counter(other_layout.frag_list)):
       return False
 
-    if self.num_components() != len(other_view.hierarchy):
+    if self.num_views() != len(other_layout.hierarchy):
       return False
 
     hierarchy_ids = [h['uniqueId'] for h in self.hierarchy]
-    other_view_ids = [ov['uniqueId'] for ov in other_view.hierarchy]
+    other_layout_ids = [ov['uniqueId'] for ov in other_layout.hierarchy]
 
-    return Counter(hierarchy_ids) == Counter(other_view_ids)
+    return Counter(hierarchy_ids) == Counter(other_layout_ids)
 
   def print_info(self):
-    """Prints out information about the view."""
+    """Prints out information about the layout."""
     print 'Activity: ' + self.activity
     print 'Fragment: ' + self.frag_list
     print 'Num: ' + str(self.num)
     print 'Screenshot path:' + self.screenshot
     print 'Hierarchy: '
-    for component in self.hierarchy:
-      print component.getUniqueId()
+    for view in self.hierarchy:
+      print view.getUniqueId()
