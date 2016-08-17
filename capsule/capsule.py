@@ -15,9 +15,8 @@ from com.dtmilano.android.viewclient import ViewClient
 import crawlpkg
 
 ADB_PATH = obtainAdbPath()
-# os.environ['ANDROID_ADB_SERVER_PORT'] = '5554'
 HELP_MSG = ('Capsule usage:\n'
-            "python capsule.py 'DEVICE_NAME' [flag] <argument>\n"
+            "python capsule.py DEVICE_SERIAL [flag] <argument>\n"
             'No command line flags -- crawl current package\n'
             '-d or --dir /PATH_TO_APKS/  -- install and run APKS from a '
             'directory.\n'
@@ -83,19 +82,29 @@ if __name__ == '__main__':
   should_crawl = False
   package_list = []
 
-  kwargs1 = {'verbose': True, 'ignoresecuredevice': True}
-  kwargs2 = {'startviewserver': True, 'forceviewserveruse': True,
-             'autodump': False, 'ignoreuiautomatorkilled': True}
-  device, serialno = ViewClient.connectToDeviceOrExit(**kwargs1)
-  vc = ViewClient(device, serialno, **kwargs2)
+  try:
+    kwargs1 = {'verbose': True, 'ignoresecuredevice': True}
+    kwargs2 = {'startviewserver': True, 'forceviewserveruse': True,
+               'autodump': False, 'ignoreuiautomatorkilled': True}
+    device, serialno = ViewClient.connectToDeviceOrExit(**kwargs1)
+    vc = ViewClient(device, serialno, **kwargs2)
+  except (RuntimeError, subprocess.CalledProcessError):
+    print 'Error, device not found or not specified.'
+    print HELP_MSG
+    sys.exit()
+
+  if any(a in sys.argv for a in ['-h', '--help']):
+    print HELP_MSG
+    sys.exit()
 
   # User only specified emulator name or nothing at all.
   if len(sys.argv) <= 2:
     print 'No command line arguments, crawling currently launched app.'
-    crawlpkg.crawl_package(vc, device)
+    crawlpkg.crawl_package(vc, device, serialno)
   # Command line argument is only valid if the user entered the filename,
   # emulator name, one option flag, and one argument.
-  elif len(sys.argv) == 3 and sys.argv[2] == '-h' or sys.argv[2] == '--help':
+  elif len(sys.argv) == 3:
+    print 'Invalid argument structure.'
     print HELP_MSG
   elif len(sys.argv) >= 4:
     try:
@@ -108,7 +117,7 @@ if __name__ == '__main__':
     # This infrastructure allows us to add additional command line argument
     # possibilities easily.
     for opt, arg in opts:
-      if opt in ('-d', '-dir'):
+      if opt in ('-d', '--dir'):
         uninstall = True
         package_list = load_pkgs_from_dir(arg)
       elif opt in ('-f', '--file'):
@@ -137,8 +146,9 @@ if __name__ == '__main__':
         package_name = package.split('/')[-1]
         # Make sure the package is installed on the device by checking it
         # against installed third-party packages.
-        installed_pkgs = subprocess.check_output([ADB_PATH, 'shell',
-                                                  'pm', 'list packages', '-3'])
+        installed_pkgs = subprocess.check_output([ADB_PATH, '-s', serialno,
+                                                  'shell', 'pm',
+                                                  'list packages', '-3'])
         if package_name not in installed_pkgs:
           print 'Cannot find the package on the device.'
           break
@@ -153,16 +163,17 @@ if __name__ == '__main__':
         print 'Crawling ' + package_name
         should_crawl = True
         # Launch the app.
-        subprocess.call([ADB_PATH, 'shell', 'monkey', '-p', package_name, '-c',
-                         'android.intent.category.LAUNCHER', '1'])
+        subprocess.call([ADB_PATH, '-s', serialno, 'shell', 'monkey', '-p',
+                         package_name, '-c', 'android.intent.category.LAUNCHER',
+                         '1'])
         time.sleep(5)
         if '.apk' in package:
-          subprocess.call([ADB_PATH, 'install', '-r', package])
-        crawlpkg.crawl_package(vc, device, package_name)
+          subprocess.call([ADB_PATH, '-s', serialno, 'install', '-r', package])
+        crawlpkg.crawl_package(vc, device, serialno, package_name)
 
         if uninstall:
           print 'uninstall' + package_name
-          subprocess.call([ADB_PATH, 'uninstall', package_name])
+          subprocess.call([ADB_PATH, '-s', serialno, 'uninstall', package_name])
 
   else:
     print 'Invalid number of command line arguments.'

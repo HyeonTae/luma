@@ -28,13 +28,13 @@ current app (assuming that the current view is the starting view of the app.)
 Although the device name is optional with no command line arguments, you must
 specify the device name if you pass in any arguments.
 
-```$ python capsule.py 'emulator-5554'```
+```$ python capsule.py emulator-5554```
 
 If a text file is passed in as a command line argument (with -f or --file),
 Capsule attempts to crawl each app listed in the file (one app per line),
 assuming that all of the packages are already installed on the device.
 
-```$ python capsule.py 'emulator-5554' -f /[PATH TO FILE]/list.txt```
+```$ python capsule.py emulator-5554 -f /[PATH TO FILE]/list.txt```
 
 If a directory is passed in as an argument (with -d or --dir), Capsule installs,
 crawls, and uninstalls each of the apps in the directory in alphabetical order.

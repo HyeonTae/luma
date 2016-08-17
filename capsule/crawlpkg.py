@@ -27,6 +27,7 @@ INVISIBLE = 0x4
 GONE = 0x8
 
 ADB_PATH = obtainAdbPath()
+SERIAL_NO = ''
 BACK_BUTTON = 'back button'
 # Return a unique string if the package is not the focused window. Since
 # activities cannot have spaces, we ensure that no activity will be named this.
@@ -243,9 +244,12 @@ def save_layout_data(package_name, activity, frag_list, vc_dump):
   screen_name = activity + '-' + first_frag + '-' + str(file_num) + '.png'
   screen_path = os.path.join(directory, screen_name)
   # device.shell() does not work for taking/pulling screencaps.
-  subprocess.call([ADB_PATH, 'shell', 'screencap', '/sdcard/' + screen_name])
-  subprocess.call([ADB_PATH, 'pull', '/sdcard/' + screen_name, screen_path])
-  subprocess.call([ADB_PATH, 'shell', 'rm', '/sdcard/' + screen_name])
+  subprocess.call([ADB_PATH, '-s', SERIAL_NO, 'shell', 'screencap',
+                   '/sdcard/' + screen_name])
+  subprocess.call([ADB_PATH, '-s', SERIAL_NO, 'pull', '/sdcard/' + screen_name,
+                   screen_path])
+  subprocess.call([ADB_PATH, '-s', SERIAL_NO, 'shell', 'rm',
+                   '/sdcard/' + screen_name])
   # Returns the filename & num so that the screenshot can be accessed
   # programatically.
   return screen_path, file_num
@@ -644,8 +648,11 @@ def crawl_until_exit(vc, device, package_name, layout_map, still_exploring,
   return logged_in
 
 
-def crawl_package(vc, device, package_name=None):
+def crawl_package(vc, device, serialno, package_name=None):
   """Crawl package. Explore blindly, then return to unexplored layouts."""
+
+  global SERIAL_NO
+  SERIAL_NO = serialno
 
   set_device_dimens(vc, device)
   # Layout map stores all Layouts that we have seen, while the still_exploring
@@ -698,9 +705,11 @@ def crawl_package(vc, device, package_name=None):
     print 'Route from root to ' + l.get_name()
 
     # Restart the app with its initial screen.
-    subprocess.call([ADB_PATH, 'shell', 'am force-stop', package_name])
-    subprocess.call([ADB_PATH, 'shell', 'monkey', '-p', package_name, '-c',
-                     'android.intent.category.LAUNCHER', '1'])
+    subprocess.call([ADB_PATH, '-s', SERIAL_NO, 'shell', 'am force-stop',
+                     package_name])
+    subprocess.call([ADB_PATH, '-s', SERIAL_NO, 'shell', 'monkey', '-p',
+                     package_name, '-c', 'android.intent.category.LAUNCHER',
+                     '1'])
     time.sleep(5)
 
     if path:
