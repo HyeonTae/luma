@@ -49,6 +49,9 @@ MAX_LAYOUTS = 40
 MAX_CONSEC_BACK_PRESSES = 10
 MAX_FB_AUTH_TAPS = 5
 
+NEGATIVE_WORDS = ['no', 'cancel', 'back', 'negative', 'neg' 'deny', 'previous',
+                  'prev', 'exit', 'delete', 'end']
+
 
 def extract_between(text, sub1, sub2, nth=1):
   """Extracts a substring from text between two given substrings."""
@@ -264,6 +267,7 @@ def save_ui_flow_relationships(layout_to_save, package_name):
   click_info = {}
   click_info['click_dict'] = layout_to_save.click_dict
   click_info['preceding'] = layout_to_save.preceding
+  click_info['depth'] = layout_to_save.depth
   with open(click_file, 'w') as out_file:
     json.dump(click_info, out_file, indent=2)
 
@@ -290,20 +294,39 @@ def create_layout(package_name, vc_dump, activity, frag_list):
   l = Layout(activity, frag_list, vc_dump, screenshot, num)
 
   for view in l.hierarchy:
-    # TODO(afergan): For now, only click on certain views, and allow custom
-    # views. Evaluate later if this is worth it or if we should just click
-    # on everything attributed as clickable.
     try:
       if (view.isClickable() and view.getVisibility() == VISIBLE and
           view.getX() >= 0 and view.getX() <= MAX_X and
           view.getWidth() > 0 and
           view.getY() >= STATUS_BAR_HEIGHT and view.getY() <= MAX_Y
           and view.getHeight() > 0):
-        print (view.getId() + ' ' + view.getClass()
-               + ' ' + str(view.getXY()) + '-- will be clicked')
+        print (view.getId() + ' ' + view.getClass() + ' ' +  str(view.getXY()) +
+               '-- will be clicked')
         l.clickable.append(view)
     except AttributeError:
       print 'Could not get view attributes.'
+
+  # For views that cancel or bring us back, click on them last. However, do not
+  # hold this against views with the unique id id/no_id/##.
+  for clickview in l.clickable:
+    if 'no_id' in clickview.getUniqueId().lower():
+      clickid = ''
+    else:
+      clickid = clickview.getUniqueId().lower()
+
+    if clickview.getText():
+      print 'Text: ' + clickview.getText()
+      clicktext = clickview.getText().lower()
+      if any(x in [clicktext, clickid] for x in NEGATIVE_WORDS):
+        print ('Going to the end of the list b/c of text or ID: ' + clicktext +
+               ' ' + clickid)
+        l.clickable.remove(clickview)
+        l.clickable.append(clickview)
+    elif any(x in clickid for x in NEGATIVE_WORDS):
+      print 'Going to the end of the list b/c of ID: ' + clickid
+      l.clickable.remove(clickview)
+      l.clickable.append(clickview)
+
   return l
 
 
@@ -318,9 +341,14 @@ def link_ui_layouts(prev_layout, curr_layout, prev_clicked, package_name):
   if prev_clicked:
     print 'Previous clicked: ' + prev_clicked
     prev_layout.click_dict[prev_clicked] = curr_layout.get_name()
-    curr_layout.preceding.append(prev_layout.get_name())
+    prev_name = prev_layout.get_name()
+    if prev_name not in curr_layout.preceding:
+      curr_layout.preceding.append(prev_name)
   else:
     print 'Lost track of last clicked!'
+
+  if curr_layout.depth == -1 or curr_layout.depth > prev_layout.depth + 1:
+    curr_layout.depth = prev_layout.depth + 1
 
   # TODO(afergan): Remove this later. For debugging, we print the clicks after
   # each click to a new layout is recorded. However, this results in a lot of
@@ -370,7 +398,8 @@ def find_view_to_lead_to_layout(layout1, layout2):
         layout2.get_name())]
   except ValueError:
     print '*** Could not find a view to link to the succeeding Layout!'
-
+    print (str(layout1.click_dict) + ' does not have a path to ' +
+           layout2.get_name())
   return FAILED_FINDING_NAME
 
 
@@ -429,7 +458,8 @@ def follow_path_to_layout(path, goal, package_name, device, layout_map,
         activity = obtain_activity_name(package_name, device, vc)
 
         if activity is EXITED_APP:
-          return False
+          activity = return_to_app_activity(package_name, device, vc)
+
         vc_dump = perform_vc_dump(vc)
         curr_layout = obtain_curr_layout(activity, package_name, vc_dump,
                                          layout_map, still_exploring, device)
@@ -449,7 +479,13 @@ def follow_path_to_layout(path, goal, package_name, device, layout_map,
                              if view.getUniqueId() == click_id), None)
         if click_target:
           print 'Clicking on ' + click_target.getUniqueId()
-          device.touch(click_target.getX(), click_target.getY())
+          try:
+            device.touch(click_target.getX(), click_target.getY())
+          except UnicodeEncodeError:
+            print '***Unicode coordinates'
+          except TypeError:
+            print '***String coordinates'
+
       else:
         print ('Could not find the right view to click on, was looking '
                'for ' + click_id)
@@ -496,7 +532,7 @@ def crawl_until_exit(vc, device, package_name, layout_map, still_exploring,
       if not prev_layout.is_duplicate_layout(curr_layout):
         print 'At a diff layout!'
         link_ui_layouts(prev_layout, curr_layout, prev_clicked, package_name)
-
+      print 'Layout depth: ' + str(curr_layout.depth)
       print 'Num clickable: ' + str(len(curr_layout.clickable))
 
       if curr_layout.clickable:
@@ -504,20 +540,25 @@ def crawl_until_exit(vc, device, package_name, layout_map, still_exploring,
           found_login = False
           if not logged_in:
             for click in curr_layout.clickable:
-              click_id = click.getUniqueId().lower()
-              if (click.getClass() == 'com.facebook.widget.LoginButton' or
-                  ('facebook' in click_id) or ('fb' in click_id and
-                                               any(s in click_id for s in
-                                                   ['login', 'log_in', 'signin',
-                                                    'sign_in']))):
+              clickid = click.getUniqueId().lower()
+              if click.getText():
+                clicktext = click.getText().lower()
+              else:
+                clicktext = ''
+
+              if (click.getClass() == 'com.facebook.widget.LoginButton'
+                  or any('facebook' in x for x in [clickid, clicktext])
+                  or ('fb' in clickid and any(s in clickid for s in
+                                              ['login', 'log_in', 'signin',
+                                               'sign_in']))):
                 found_login = True
                 print 'Trying to log into Facebook.'
                 # Sometimes .touch() doesn't work
+                curr_layout.clickable.remove(click)
                 device.shell('input tap ' + str(click.getX()) +
                              ' ' + str(click.getY()))
                 consec_back_presses = 0
                 prev_clicked = click.getUniqueId()
-                curr_layout.clickable.remove(click)
                 time.sleep(10)
                 # Make sure the new screen is loaded by waiting for the dump.
                 perform_vc_dump(vc)
@@ -525,6 +566,7 @@ def crawl_until_exit(vc, device, package_name, layout_map, still_exploring,
                 print activity_str
                 if 'com.facebook.katana' in activity_str:
                   logged_in = True
+                  print 'Logged in!'
                   # Because the Facebook authorization dialog is primarily a
                   # WebView, we must click on x, y coordinates of the Continue
                   # button instead of looking at the hierarchy.
@@ -545,20 +587,21 @@ def crawl_until_exit(vc, device, package_name, layout_map, still_exploring,
                     time.sleep(3)
                     activity_str = obtain_focus_and_allow_permissions(
                         device, vc)
-
                 else:
                   print 'Could not log into Facebook.'
                   print (activity_str + ' ' +
                          str(obtain_frag_list(package_name, device)))
-              elif (('gplus' in click_id or 'google' in click_id) and
-                    any(s in click_id for s in ['login', 'log_in', 'signin',
-                                                'sign_in'])):
+                break
+              elif (('gplus' in clickid or 'google' in clickid) and
+                    any(s in clickid for s in ['login', 'log_in', 'signin',
+                                               'sign_in'])):
                 found_login = True
                 print 'Trying to log into Google+.'
-                device.touch(str(click.getX()), str(click.getY()))
+                curr_layout.clickable.remove(click)
+                device.shell('input tap ' + str(click.getX()) + ' ' +
+                             str(click.getY()))
                 consec_back_presses = 0
                 prev_clicked = click.getUniqueId()
-                curr_layout.clickable.remove(click)
                 time.sleep(4)
                 # Make sure the new screen is loaded by waiting for the dump.
                 perform_vc_dump(vc)
@@ -575,7 +618,7 @@ def crawl_until_exit(vc, device, package_name, layout_map, still_exploring,
                     v = vc.findViewById('id/account_profile_picture')
                     if v:
                       device.touch(v.getX(), v.getY())
-                      print 'selected user.'
+                      print 'Selected user.'
                       time.sleep(4)
                       perform_vc_dump(vc)
                     activity_str = obtain_focus_and_allow_permissions(
@@ -589,6 +632,7 @@ def crawl_until_exit(vc, device, package_name, layout_map, still_exploring,
                       print 'granting'
                       device.touch(v.getX(), v.getY())
                       time.sleep(4)
+                break
 
           if not found_login:
             c = curr_layout.clickable[0]
@@ -601,6 +645,8 @@ def crawl_until_exit(vc, device, package_name, layout_map, still_exploring,
             curr_layout.clickable.remove(c)
         except UnicodeEncodeError:
           print '***Unicode coordinates'
+        except TypeError:
+          print '***String coordinates'
       else:
         print 'Removing ' + curr_layout.get_name() + ' from still_exploring.'
         still_exploring.pop(curr_layout.get_name(), 0)
@@ -684,6 +730,8 @@ def crawl_package(vc, device, serialno, package_name=None):
     return
   root_layout = obtain_curr_layout(activity, package_name, vc_dump, layout_map,
                                    still_exploring, device)
+  root_layout.depth = 0
+
   logged_in = crawl_until_exit(vc, device, package_name, layout_map,
                                still_exploring, root_layout, logged_in)
 
@@ -723,7 +771,7 @@ def crawl_package(vc, device, serialno, package_name=None):
         print 'At root layout: ' + str(reached_layout)
       else:
         print 'No path to ' + l.get_name()
-
+        still_exploring.pop(l.get_name(), 0)
     vc_dump = perform_vc_dump(vc)
     activity = obtain_activity_name(package_name, device, vc)
 

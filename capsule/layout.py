@@ -24,6 +24,7 @@ class Layout(object):
     self.clickable = []
     self.preceding = []
     self.click_dict = {}
+    self.depth = -1
 
   def get_name(self):
     """Returns the identifying name of the Layout."""

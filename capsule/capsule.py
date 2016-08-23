@@ -16,7 +16,7 @@ import crawlpkg
 
 ADB_PATH = obtainAdbPath()
 HELP_MSG = ('Capsule usage:\n'
-            "python capsule.py DEVICE_SERIAL [flag] <argument>\n"
+            'python capsule.py DEVICE_SERIAL [flag] <argument>\n'
             'No command line flags -- crawl current package\n'
             '-d or --dir /PATH_TO_APKS/  -- install and run APKS from a '
             'directory.\n'
@@ -79,7 +79,7 @@ if __name__ == '__main__':
   # to do bulk crawling since we do not need to worry about the device memory
   # filling up.
   uninstall = False
-  should_crawl = False
+  recrawl = False
   package_list = []
 
   try:
@@ -125,7 +125,7 @@ if __name__ == '__main__':
       elif opt in ('-h', '--help'):
         print HELP_MSG
       elif opt in ('-r', '--recrawl'):
-        should_crawl = True
+        recrawl = True
       else:
         print ('Unhandled option. Use -h or --help for a listing of '
                'commands')
@@ -138,6 +138,7 @@ if __name__ == '__main__':
       # Possibly install, then launch and crawl the app. device.shell() does
       # not support the install or launch.
       package_name = ''
+      should_crawl = True
       if '.apk' in package:
         package_name = crawlpkg.extract_between(package, '/', '.apk', -1)
 
@@ -151,17 +152,14 @@ if __name__ == '__main__':
                                                   'list packages', '-3'])
         if package_name not in installed_pkgs:
           print 'Cannot find the package on the device.'
-          break
-      if not os.path.exists(os.path.dirname(os.path.abspath(__file__))
-                            + '/data/' + package_name):
-        should_crawl = True
-      else:
-        print ('Package has already been crawled and should_crawl is set to ' +
-               str(should_crawl))
+          should_crawl = False
+
+      if os.path.exists(os.path.dirname(os.path.abspath(__file__)) + '/data/' +
+                        package_name) and not recrawl:
+        should_crawl = False
 
       if should_crawl:
         print 'Crawling ' + package_name
-        should_crawl = True
         # Launch the app.
         subprocess.call([ADB_PATH, '-s', serialno, 'shell', 'monkey', '-p',
                          package_name, '-c', 'android.intent.category.LAUNCHER',
