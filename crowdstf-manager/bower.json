@@ -1,0 +1,16 @@
+{
+  "name": "crowdstf-manager",
+  "version": "0.1.0",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "components"
+  ],
+  "dependencies": {
+    "angular": "~1.2.14",
+    "angular-socket-io": "~0.3.0",
+    "angular-route": "~1.2.14",
+    "underscore": "^1.8.3",
+    "bootstrap": "v4.0.0-alpha.2"
+  }
+}

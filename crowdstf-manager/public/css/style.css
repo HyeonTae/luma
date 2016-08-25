@@ -1,0 +1,83 @@
+/* Copyright 2016 The Vanadium Authors. All rights reserved. */
+/* Use of this source code is governed by a BSD-style */
+/* license that can be found in the LICENSE file. */
+
+li {
+  list-style: none;
+}
+
+.tokenManager .btn {
+  line-height: .7;
+}
+
+pre {
+  font-size: 60%;
+}
+
+.btn {
+  font-size: .85rem;
+}
+
+.menu {
+  list-style: none;
+  border-bottom: 0.1em solid black;
+  margin-bottom: 2em;
+  padding: 0 0 0.5em;
+}
+
+.menu:before {
+  content: "[";
+}
+
+.menu:after {
+  content: "]";
+}
+
+.menu > li {
+  display: inline;
+}
+
+.menu > li:before {
+  content: "|";
+  padding-right: 0.3em;
+}
+
+.menu > li:nth-child(1):before {
+  content: "";
+  padding: 0;
+}
+
+p {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.event-wrap {
+  width: 100%;
+  border-bottom: 1px dotted;
+  float: left;
+}
+
+.eventAttrs {
+  float: left;
+  width: 50%;
+}
+
+.eventImg {
+  float: left;
+  width: 50%;
+}
+
+.slider {
+  width: 100%;
+}
+
+.appJSON {
+  width: 300px;
+  border-radius: .25rem;
+}
+
+.tokenMins {
+  width: 25px;
+  border-radius: .25rem;
+}

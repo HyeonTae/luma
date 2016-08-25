@@ -1,0 +1,28 @@
+// Copyright 2016 The Vanadium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+div#control
+  input.slider(type="range", min=0, max="{{deviceEvents.length-1}}",
+  ng-model="slider")
+  p {{slider}}
+
+div.event-wrap
+  div.eventAttrs
+    p EventName: {{deviceEvents[slider].eventName}}
+    p Id: {{deviceEvents[slider].id}}
+    p ImgFile: {{deviceEvents[slider].imgId}}
+    p Pressure: {{deviceEvents[slider].pressure}}
+    p Seq: {{deviceEvents[slider].seq}}
+    p Serial: {{deviceEvents[slider].serial}}
+    p SessionId: {{deviceEvents[slider].sessionId}}
+    p TimeStamp: {{deviceEvents[slider].timestamp}}
+    p X: {{deviceEvents[slider].x}}
+    p Y: {{deviceEvents[slider].y}}
+    p userEmail: {{deviceEvents[slider].userEmail}}
+    p userName: {{deviceEvents[slider].userName}}
+    p userGroup: {{deviceEvents[slider].userGroup}}
+    p userIP: {{deviceEvents[slider].userIP}}
+    p userLastLogin: {{deviceEvents[slider].userLastLogin}}
+  div.eventImg
+    img(src="/{{deviceEvents[slider].imgId}}", width="130px")

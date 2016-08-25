@@ -1,0 +1,92 @@
+// Copyright 2016 The Vanadium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+// Example config.json
+// Please remove comments from an actual config.json.
+{
+  "production": false,
+  "port": 3000,
+  "database": {
+    "host": "127.0.0.1",
+    "port": "28015",
+    "name": "stf"
+  },
+  "awsCreds": {
+    "accessKey": "ACCESS_KEY_HERE",
+    "secretKey": "SECRET_KEY_HERE"
+  },
+  "stfAppUrl": "http://localhost:7100",
+  "stfAuthUrl": "http://localhost:7100",
+
+  // Whether to broadcast the live event stream from OpenSTF to the UI.
+  // This has a heavy performance impact when set to true.
+  "broadcastEvents": true,
+
+  // How often to poll the devices to create HITs
+  "pollIntervalMillis": 15000,
+
+  // The image URL to use in the Turk HIT
+  "taskScreenShot": "http://foo.com/img.jpg",
+
+  // How long users are allowed to use the virtual smartphones
+  // from HITs created by polling.
+  "polledTaskMinutes": 5.0,
+
+  // Account details that appear in the Turk HIT template.
+  "hitAccounts": {
+    "contactEmail": "foo@bar.com",
+    "logins": {
+      "facebook": {
+        "username": "foo@bar.com",
+        "password": "pazz"
+      },
+      "twitter": {
+        "username": "foobar",
+        "password": "pazz"
+      },
+      "gmail": {
+        "username": "foo@bar.com",
+        "password": "pazz"
+      }
+    }
+  },
+
+  // HIT options compliant with https://www.npmjs.com/package/mturk-api
+  "hit": {
+
+    // Include a %s to substitute the task time.
+    "title": "Do something fun for %s minutes",
+    "keywords": "usability, ui, app, android",
+    "assignmentDurationInSeconds": 1800,
+    "rewardDollarsPerMinute": 0.30,
+    "autoApprovalDelayInSeconds": 259200,
+    "currencyCode": "USD",
+    "currencyPrefix": "$",
+    "lifetimeInSeconds": 86400,
+    "description": "A hit description",
+
+    // Place the production qualification from Turk here.
+    // Production and sandbox can be the same or different qual type.
+    // Stock qualification types at http://docs.aws.amazon.com/AWSMechTurk/latest/AWSMturkAPI/ApiReference_QualificationRequirementDataStructureArticle.html#ApiReference_QualificationType-IDs
+    // Custom qualifications at https://requester.mturk.com/qualification_types.
+    "productionQual": {
+      "QualificationTypeId": "abcde",
+      "Comparator": "GreaterThan",
+      "IntegerValue": [
+        0
+      ],
+      "RequiredToPreview": true
+    },
+
+    // This qualification types is used when production is false
+    "sandboxQual": {
+      "QualificationTypeId": "hijklm",
+      "Comparator": "GreaterThan",
+      "IntegerValue": [
+        97
+      ],
+      "RequiredToPreview": true
+    }
+  }
+}

@@ -1,0 +1,71 @@
+// Copyright 2016 The Vanadium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+.tokenManager
+
+  h5 HIT Automation
+  ul
+    li(ng-if='activePolling')
+      button.btn.btn-danger(ng-click='stopPolling()') Polling Active
+    li(ng-if='!activePolling')
+      button.btn.btn-info(ng-click='startPolling()') Start Polling
+
+  h5 App Loader
+  ul
+    li Provide a JSON array of app id's
+      br
+      span e.g. ["com.foo.fizz", "com.bar.bazz"]
+      br
+      textarea.appJSON(type='text', ng-model='pendingAppList')
+    button.btn.btn-info(ng-click='setAppList()') Insert
+    br
+    button.btn.btn-danger(ng-click='clearAppList()') Reset App List
+
+  h5 App List
+  ul(ng-repeat='app in appList | orderBy:"used"')
+    li
+    = '{{app.appId}} {{" (" + (app.used ? "used" : "") + (app.updated ? ", " + '
+    = 'app.updated : "") + ")"}}'
+
+  h5 Devices
+  ul(ng-repeat='device in devices | filter:{present:true}')
+    li {{device.serial + ' (' + device.name + '): '}}
+      span(ng-if='device.tokenStatus && device.tokenStatus !== "unused"') Busy
+        span(ng-if='device.owner === null') (null owner)
+      span(ng-if='!device.owner && !device.token')
+        input.tokenMins(type='text', ng-model='serialExpires[device.serial]',
+        ng-init='serialExpires[device.serial]=5')
+        | {{' '}}minute token{{' '}}
+        button.btn.btn-info(ng-click='generateToken(device.serial)') Get
+      span(ng-if='device.token && device.tokenStatus === "unused"')
+      = 'Token Allocated'
+
+  h5 Allocated Tokens
+  ul(ng-repeat='tokenObj in tokens | filter:{status:"unused"}')
+    li {{tokenObj.token + ' '}}
+      a(ng-href='{{stfAuthUrl + "/auth/token/" + tokenObj.token}}',
+      target='_blank', ng-click='sync(1)')
+        button.btn.btn-success() Use
+      span {{' | '}}
+      a(href='javascript:;', ng-click='expireToken(tokenObj.token)')
+        button.btn.btn-danger() Expire
+      ul
+        pre {{tokenObj | json}}
+
+  h5 Active Tokens
+  ul(ng-repeat='tokenObj in tokens | filter:{status:"active"}')
+    li Device {{tokenObj.serial + ' '}}
+      a(href='javascript:;', ng-click='expireToken(tokenObj.token)')
+        button.btn.btn-danger() Expire
+      ul(ng-if='tokenObj.status')
+        pre {{tokenObj | json}}
+
+
+  // Using jade variables to break up 80+ char ng repeat
+  - var ngRepeater = 'tokenObj in tokens | filter:{status:"expired"}';
+  - ngRepeater = ngRepeater + ' | orderBy : creationTime : true';
+  h5 Expired Tokens
+  ul(ng-repeat=ngRepeater)
+    li
+      pre {{tokenObj | json}}

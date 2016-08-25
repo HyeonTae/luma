@@ -1,0 +1,22 @@
+// Copyright 2016 The Vanadium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+doctype html
+
+html(ng-app="crowdStfManager")
+  head
+    meta(charset='utf8')
+    base(href='/')
+    title STF Manager
+    link(rel='stylesheet',
+    href='/bower_components/bootstrap/dist/css/bootstrap.min.css')
+    link(rel='stylesheet', href='/css/style.css')
+  body
+    .header
+      .links
+        a(href="/tokens") Token Manager
+        span #{' '}|#{' '}
+        a(href="/usageStream") Recording Viewer
+    hr
+    block body

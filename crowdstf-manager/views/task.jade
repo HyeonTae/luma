@@ -1,0 +1,158 @@
+// Copyright 2016 The Vanadium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+// This is a special self-encapsulating HTML page designed to live within
+// provided mturk iframes in the mturk HIT viewer.
+
+- var xmlns = 'http://mechanicalturk.amazonaws.com/AWSMechanicalTurkDataSchem';
+- xmlns += 'as/2011-11-11/HTMLQuestion.xsd';
+- var bstp = 'https://s3.amazonaws.com/mturk-public/bs30/css/bootstrap.min.css';
+- var logins = logins || {facebook:{}, gmail:{}, twitter:{}};
+
+HTMLQuestion(xmlns=xmlns)
+  HTMLContent<![CDATA[<!DOCTYPE html>
+    html
+      head
+        title Smartphone App Exploration HIT
+        meta(http-equiv='Content-Type', content='text/html; charset=UTF-8')
+        script(type='text/javascript',
+        src='https://s3.amazonaws.com/mturk-public/externalHIT_v1.js')
+        script(type='text/javascript',
+        src='https://code.jquery.com/jquery-3.1.0.min.js')
+      body
+        form#mturk_form(name='mturk_form', method='post',
+        action='https://www.mturk.com/mturk/externalSubmit?token=' + token)
+          input#assignmentId(type='hidden', value='', name='assignmentId')
+          link(href=bstp, rel='stylesheet')
+          section#Other.container
+            .row.col-xs-12
+              .panel.panel-primary
+                .panel-heading
+                  h3.leftPad Smartphone App Exploration
+            .row.col-xs-12
+              .asn-description
+                h4 Background
+                p.leftPad This HIT is part of a smartphone
+                  | app usage study to
+                  | better understand how people interact with smartphones apps.
+                  | Results from this study will be used to create more
+                  | user-friendly apps with designs that are easier to use.
+                  | During your task, our system gathers statistical analysis on
+                  | how apps are used. After verifying your task use, we will
+                  | award the HIT amount.
+
+                .row
+                  .col-xs-5
+                    h4 Requirements
+                    ul
+                      li Google Chrome web browser
+                      li Internet fast enough to stream video Netflix/YouTube
+                        | without delay (~15 Mbps)
+                      li Have used Android or iPhone before
+                    h4 Task
+                    .leftPad
+                      p The task is to click the provided link (appears after
+                        | accepting) and explore as much of the provided app
+                        | (launches automatically) as you can on the virtual
+                        | smartphone in #{taskTime} minutes. Keep exploring the
+                        | app until its timer runs out. Return here and hit
+                        | submit (bottom).
+
+                      p Notes before starting:
+                      ul
+                        li Don't leave the app (i.e. clicking share/email/home
+                          | buttons).
+                        li If you accidentally leave the app, go back into it
+                          | using the Android app switcher (square icon bottom
+                          | right on the screen).
+                        li It is common to see some delay as the app responds.
+                        li Only see a gray screen? Click exit and email
+                          | #{contactEmail} to let us know it happened.
+                        li If no app launches for you, find any app on the home
+                          | screen and explore it.
+
+                    h4 Start
+                    p.leftPad After accepting the HIT, click
+                      | the link below to start using a virtual smartphone.
+                    p#asn-link.leftPad
+                    p.userAccts If your
+                      | app needs a login, use:
+                    ul.userAccts(style='display:none;')
+                      li Gmail: #{logins.gmail.username}, password:
+                        | #{logins.gmail.password}
+                      li Facebook: #{logins.facebook.username}, password:
+                        | #{logins.facebook.password}
+                      li Twitter: #{logins.twitter.username},
+                        | password:#{logins.twitter.password}
+                      li Please be kind and don't abuse these test accounts
+
+                    .errors(style='display:none;')
+                      h4 Problems
+                      p.leftPad If you encounter problems or
+                        | want to give us feedback on how to improve this task,
+                        | email
+                        a(href='mailto:' + contactEmail)=' ' + contactEmail
+                        | .
+
+                    h4 Finish
+                    p.leftPad When done with the task
+                      | (near the end of your HIT time), close the smartphone
+                      | website and submit below. We will review
+                      | your task and submit the award.
+                    input#submitButton.btn.btn-primary(type='submit',
+                    value='Submit', style='display:none;')
+                  .row.col-xs-7
+                    img.screen(src=taskScreenShot)
+
+          style(type='text/css').
+            #Other {
+              margin-bottom: 15px;
+              padding: 10px 10px;
+              font-family: Verdana, Geneva, sans-serif;
+              color: #333333;
+              font-size: 0.9em;
+            }
+
+            fieldset {
+              padding: 10px;
+              background: #fbfbfb;
+              border-radius: 5px;
+              margin-bottom: 5px;
+            }
+
+            .leftPad {
+              padding-left: 16px;
+            }
+
+            p.userAccts {
+              display: none;
+              margin-left: 16px;
+            }
+
+            #submitButton {
+              margin-left: 16px;
+            }
+
+            img.screen {
+              width: 100%;
+            }
+
+        script(language='Javascript').
+          // TurkGetParam is in the turk JS API in the outer iframe of mturk.
+          var asnId = turkGetParam('assignmentId', '');
+          if (asnId !== 'ASSIGNMENT_ID_NOT_AVAILABLE') {
+            var $asnLink = $('#asn-link');
+            var link = '!{tokenUrl}';
+            var stfLinkEl = $('<a href="' + link + '" target="_blank">' +
+                    'CrowdSTF Link</a>');
+            $asnLink.append(stfLinkEl);
+
+            $('.errors').show();
+            $('#submitButton').show();
+            $('.userAccts').show();
+            $('#assignmentId').val(asnId);
+          }
+
+    |         ]]>
+  FrameHeight 750
