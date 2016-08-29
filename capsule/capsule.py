@@ -83,7 +83,7 @@ if __name__ == '__main__':
   package_list = []
 
   try:
-    kwargs1 = {'verbose': True, 'ignoresecuredevice': True}
+    kwargs1 = {'verbose': True, 'ignoresecuredevice': True, 'timeout': 20}
     kwargs2 = {'startviewserver': True, 'forceviewserveruse': True,
                'autodump': False, 'ignoreuiautomatorkilled': True}
     device, serialno = ViewClient.connectToDeviceOrExit(**kwargs1)
@@ -141,6 +141,7 @@ if __name__ == '__main__':
       should_crawl = True
       if '.apk' in package:
         package_name = crawlpkg.extract_between(package, '/', '.apk', -1)
+        subprocess.call([ADB_PATH, '-s', serialno, 'install', '-r', package])
 
       else:
         # We have the package name but not the .apk file.
@@ -151,7 +152,7 @@ if __name__ == '__main__':
                                                   'shell', 'pm',
                                                   'list packages', '-3'])
         if package_name not in installed_pkgs:
-          print 'Cannot find the package on the device.'
+          print 'Cannot find the package on the device.' + package_name
           should_crawl = False
 
       if os.path.exists(os.path.dirname(os.path.abspath(__file__)) + '/data/' +
@@ -160,13 +161,13 @@ if __name__ == '__main__':
 
       if should_crawl:
         print 'Crawling ' + package_name
+
         # Launch the app.
         subprocess.call([ADB_PATH, '-s', serialno, 'shell', 'monkey', '-p',
                          package_name, '-c', 'android.intent.category.LAUNCHER',
                          '1'])
         time.sleep(5)
-        if '.apk' in package:
-          subprocess.call([ADB_PATH, '-s', serialno, 'install', '-r', package])
+
         crawlpkg.crawl_package(vc, device, serialno, package_name)
 
         if uninstall:

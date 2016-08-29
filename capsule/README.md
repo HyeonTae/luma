@@ -90,11 +90,12 @@ After this, you will need to add the AndroidViewClient to your PYTHONPATH:
 
 ``$ export PYTHONPATH=$PYTHONPATH:$JIRI_ROOT/release/projects/luma_third_party/AndroidViewClient/``
 
-### Facebook Login
+### Facebook/Google Login
 
-Capsule automate Facebook logins to allow the crawler to get through login
-procedures. If the Facebook app is installed on the device and logged into an
-account, Capsule will prioritize clicking on a Facebook login button.
+Capsule automates Facebook and Google logins to allow the crawler to get through
+login procedures. Capsule prioritizes clicking on Facebook or Google login
+buttons, so installing/logging into Facebook and logging into a Google account
+allows the program to get beyond login screens.
 
 ## Contributors
 
