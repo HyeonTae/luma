@@ -48,15 +48,16 @@ MAX_LAYOUTS = 40
 # a cycle.
 MAX_CONSEC_BACK_PRESSES = 10
 MAX_FB_AUTH_TAPS = 5
+MAX_FB_BUG_RESETS = 5
 
 NEGATIVE_WORDS = ['no', 'cancel', 'back', 'negative', 'neg' 'deny', 'previous',
-                  'prev', 'exit', 'delete', 'end']
+                  'prev', 'exit', 'delete', 'end', 'remove', 'clear']
 
 
 def extract_between(text, sub1, sub2, nth=1):
   """Extracts a substring from text between two given substrings."""
   # Credit to
-  # https://www.daniweb.com/programming/software-development/code/446964/extract-a-string-between-2-substrings-python-
+  # https://www.daniweb.com/programming/software-development/code/446964/extract-a-string-between-2-substrings-python
 
   # Prevent sub2 from being ignored if it's not there.
   if sub2 not in text.split(sub1, nth)[-1]:
@@ -68,15 +69,20 @@ def set_device_dimens(vc, device):
   """Sets global variables to the dimensions of the device."""
   global MAX_X, MAX_Y, STATUS_BAR_HEIGHT
 
-  # Returns a string similar to "Physical size: 1440x2560"
-  size = device.shell('wm size')
-  # Returns a string similar to "Physical density: 560"
-  density = int(device.shell('wm density').split(' ')[-1])
-  # We do not want the crawler to click on the navigation bar because it can
-  # hit the back button or minimize the app.
-  # From https://developer.android.com/guide/practices/screens_support.html
-  # The conversion of dp units to screen pixels is simple: px = dp * (dpi / 160)
-  navbar_height = NAVBAR_DP_HEIGHT * density / 160
+  try:
+    # Returns a string similar to "Physical size: 1440x2560"
+    size = device.shell('wm size')
+    # Returns a string similar to "Physical density: 560"
+    density = int(device.shell('wm density').split(' ')[-1])
+    # We do not want the crawler to click on the navigation bar because it can
+    # hit the back button or minimize the app.
+    # From https://developer.android.com/guide/practices/screens_support.html
+    # The conversion of dp units to screen pixels is simple:
+    # px = dp * (dpi / 160)
+    navbar_height = NAVBAR_DP_HEIGHT * density / 160
+  except IOError:
+    print '*** Socket timeout! Cannot get nav bar height.'
+    navbar_height = 0
 
   MAX_X = int(extract_between(size, ': ', 'x'))
   MAX_Y = int(extract_between(size, 'x', '\r')) - navbar_height
@@ -87,6 +93,10 @@ def set_device_dimens(vc, device):
   else:
     # Keep status at default 0 height.
     print 'Cannot get status bar height.'
+
+
+def is_in_bounds(x, y):
+  return x >= 0 and x <= MAX_X and y >= STATUS_BAR_HEIGHT and y <= MAX_Y
 
 
 def perform_press_back(device):
@@ -108,13 +118,138 @@ def touch(device, view):
   # the center of the view, which may be offscreen (or push a button on the nav
   # bar).
   try:
-    device.touch(view.getX(), view.getY())
-    print('Clicked {} {}, ({},{})'.format(view.getUniqueId(), view.getClass(),
-                                          view.getX(), view.getY()))
+    (x, y) = view.getXY()
+    device.touch(x, y)
+    print('Clicked top left {} {}, ({},{})'.format(view.getUniqueId(),
+                                                   view.getClass(), view.getX(),
+                                                   view.getY()))
   except UnicodeEncodeError:
     print '***Unicode coordinates'
   except TypeError:
     print '***String coordinates'
+
+
+def fb_login(package_name, device, curr_layout, click, vc):
+  """Log into Facebook by automating the authentication flow."""
+
+  # Get the full name of the current activity.
+  focus_str = device.shell("dumpsys window windows | grep -E 'mCurrentFocus'")
+  app_activity = extract_between(focus_str, ' ', '}', -1)
+  print 'App activity: ' + app_activity
+  print 'Trying to log into Facebook.'
+  # Sometimes touch() doesn't work
+  curr_layout.clickable.remove(click)
+  device.shell('input tap ' + str(click.getX()) +
+               ' ' + str(click.getY()))
+
+  # Make sure the new screen is loaded by waiting for the dump.
+  perform_vc_dump(vc)
+  activity_str = obtain_focused_activity(device, vc)
+  print activity_str
+
+  # For a weird bug where the Facebook app sometimes repeatedly
+  # flashes a splashscreen and does not advance to the login.
+  f = 0
+  while activity_str == 'com.facebook.katana.app.FacebookSplashScreenActivity':
+
+    # We were not able to get past the bug.
+    if f >= MAX_FB_BUG_RESETS:
+      print 'Could not get past Facebook bug.'
+      return False
+
+    print 'Facebook bug! ' + str(f)
+    # Clear, stop, and relaunch Facebook.
+    device.shell('adb shell pm clear com.facebook.katana')
+    device.shell('am force-stop com.facebook.katana')
+    device.shell('monkey -p com.facebook.katana -c '
+                 'android.intent.category.LAUNCHER 1')
+    time.sleep(2)
+    # Relaunch the app with the previous activity.
+    out = device.shell('su 0 am start -n ' + app_activity)
+    if any(x in out for x in['Error', 'Warning']):
+      # TODO(afergan): Relaunch the app and follow the shortest path to here.
+      return False
+
+    time.sleep(5)
+    device.shell('input tap ' + str(click.getX()) + ' ' + str(click.getY()))
+    time.sleep(5)
+    activity_str = obtain_focused_activity(device, vc)
+    print activity_str
+    f += 1
+
+  activity_str = obtain_focused_activity(device, vc)
+
+  if activity_str == 'com.facebook.katana.ProxyAuthDialog':
+    print 'Logging in'
+    # Because the Facebook authorization dialog is primarily a
+    # WebView, we must click on x, y coordinates of the Continue
+    # button instead of looking at the hierarchy.
+    device.shell('input tap ' + str(int(.5 * MAX_X)) + ' ' +
+                 str(int(.82 * MAX_Y)))
+    perform_vc_dump(vc)
+    activity_str = obtain_focus_and_allow_permissions(device, vc)
+
+    # Authorize app to post to Facebook (or any other action).
+    num_taps = 0
+    while 'ProxyAuthDialog' in activity_str and num_taps < MAX_FB_AUTH_TAPS:
+      print 'Facebook authorization #' + str(num_taps)
+      device.shell('input tap ' + str(int(.90 * MAX_X)) + ' ' +
+                   str(int(.95 * MAX_Y)))
+      num_taps += 1
+      time.sleep(3)
+      activity_str = obtain_focus_and_allow_permissions(device, vc)
+    return True
+
+  else:
+    print 'Could not log into Facebook.'
+    print activity_str + ' ' + str(obtain_frag_list(package_name, device))
+    return False
+
+
+def google_login(device, curr_layout, click, vc):
+  """Log into Google by automating the authentication flow."""
+
+  # TODO(afergan): Figure out if this fails or if the button doesn't lead to a
+  # login.
+  print 'Trying to log into Google.'
+
+  curr_layout.clickable.remove(click)
+  touch(device, click)
+  time.sleep(4)
+  # Make sure the new screen is loaded by waiting for the dump.
+  vc_dump = perform_vc_dump(vc)
+  if not vc_dump:
+    return False
+
+  # Some apps want to access contacts to get user information.
+  activity_str = obtain_focus_and_allow_permissions(device, vc)
+
+  print activity_str
+  if 'com.google.android.gms' not in activity_str:
+    return False
+
+  print 'Logging into G+'
+  # Some apps ask to pick the Google user before logging in.
+  if 'AccountChipAccountPickerActivity' in activity_str:
+    print 'Selecting user.'
+    v = vc.findViewById('id/account_profile_picture')
+    if v:
+      touch(device, v)
+      print 'Selected user.'
+      time.sleep(4)
+      perform_vc_dump(vc)
+    activity_str = obtain_focus_and_allow_permissions(device, vc)
+    print activity_str
+  if 'GrantCredentialsWithAclActivity' in activity_str:
+    print 'Granting credentials.'
+    perform_vc_dump(vc)
+    v = vc.findViewById('id/accept_button')
+    if v:
+      print 'Granting'
+      touch(device, v)
+      time.sleep(4)
+
+  return True
 
 
 def return_to_app_activity(package_name, device, vc):
@@ -134,10 +269,25 @@ def return_to_app_activity(package_name, device, vc):
   return EXITED_APP
 
 
+def obtain_focused_activity(device, vc):
+  """Returns the activity ."""
+
+  # The current focus returns a string in the format
+  # mCurrentFocus=Window{35f66c3 u0 com.google.zagat/com.google.android.apps.
+  # zagat.activities.BrowseListsActivity}
+  # We only want the text between the backslash and the closing bracket.
+  activity_str = obtain_focus_and_allow_permissions(device, vc)
+
+  if not activity_str:
+    return ''
+
+  return extract_between(activity_str, '/', '}', -1)
+
+
 def obtain_focus_and_allow_permissions(device, vc):
   """Accepts any permission prompts and returns the current focus."""
-  activity_str = device.shell('dumpsys window windows '
-                              '| grep -E \'mCurrentFocus\'')
+  activity_str = device.shell("dumpsys window windows "
+                              "| grep -E 'mCurrentFocus'")
 
   # If the app is prompting for permissions, automatically accept them.
   while 'com.android.packageinstaller' in activity_str:
@@ -145,9 +295,22 @@ def obtain_focus_and_allow_permissions(device, vc):
     perform_vc_dump(vc)
     touch(device, vc.findViewById('id/permission_allow_button'))
     time.sleep(2)
-    activity_str = device.shell('dumpsys window windows '
-                                '| grep -E \'mCurrentFocus\'')
+    activity_str = device.shell("dumpsys window windows "
+                                "| grep -E 'mCurrentFocus'")
 
+  # Keycodes are from
+  # https://developer.android.com/reference/android/view/KeyEvent.html
+
+  # If a physical device is at the lockscreen, unlock it.
+  if 'StatusBar' in activity_str:
+    # If the screen is off, turn it on.
+    if (device.shell("dumpsys power | grep 'Display Power: state=' | grep -oE "
+                     "'(ON|OFF)'") == 'OFF'):
+      device.press('26')  # KEYCODE_POWER
+    # Unlock device.
+    device.press('82')  # KEYCODE_MENU
+    activity_str = device.shell("dumpsys window windows "
+                                "| grep -E 'mCurrentFocus'")
   return activity_str
 
 
@@ -218,7 +381,7 @@ def is_active_layout(stored_layout, package_name, device, vc):
           Counter(stored_layout.frag_list))
 
 
-def save_layout_data(package_name, activity, frag_list, vc_dump):
+def save_layout_data(package_name, device, activity, frag_list, vc_dump):
   """Stores the view hierarchy and screenshots with unique filenames."""
   # Returns the path to the screenshot and the file number.
 
@@ -264,12 +427,10 @@ def save_layout_data(package_name, activity, frag_list, vc_dump):
   screen_name = activity + '-' + first_frag + '-' + str(file_num) + '.png'
   screen_path = os.path.join(directory, screen_name)
   # device.shell() does not work for taking/pulling screencaps.
-  subprocess.call([ADB_PATH, '-s', SERIAL_NO, 'shell', 'screencap',
-                   '/sdcard/' + screen_name])
+  device.shell('screencap /sdcard/' + screen_name)
   subprocess.call([ADB_PATH, '-s', SERIAL_NO, 'pull', '/sdcard/' + screen_name,
                    screen_path])
-  subprocess.call([ADB_PATH, '-s', SERIAL_NO, 'shell', 'rm',
-                   '/sdcard/' + screen_name])
+  device.shell('rm /sdcard/' + screen_name)
   # Returns the filename & num so that the screenshot can be accessed
   # programatically.
   return screen_path, file_num
@@ -299,9 +460,10 @@ def find_layout_in_map(activity, frag_list, vc_dump, layout_map):
   return None
 
 
-def create_layout(package_name, vc_dump, activity, frag_list):
+def create_layout(package_name, device, vc_dump, activity, frag_list):
   """Stores the current layout in the Layout data structure."""
-  screenshot, num = save_layout_data(package_name, activity, frag_list, vc_dump)
+  screenshot, num = save_layout_data(package_name, device, activity, frag_list,
+                                     vc_dump)
 
   # If we think the first element in the view hierarchy is a back button, move
   # it to the end of the list so that we click on it last.
@@ -313,10 +475,8 @@ def create_layout(package_name, vc_dump, activity, frag_list):
   for view in l.hierarchy:
     try:
       if (view.isClickable() and view.getVisibility() == VISIBLE and
-          view.getX() >= 0 and view.getX() <= MAX_X and
-          view.getWidth() > 0 and
-          view.getY() >= STATUS_BAR_HEIGHT and view.getY() <= MAX_Y
-          and view.getHeight() > 0):
+          is_in_bounds(view.getX(), view.getY()) and view.getWidth() > 0 and
+          view.getHeight() > 0):
         if view.getText():
           print (view.getId() + ' ' + view.getClass() + ' ' +
                  str(view.getXY()) + ' ' + view.getText() +
@@ -331,21 +491,17 @@ def create_layout(package_name, vc_dump, activity, frag_list):
   # For views that cancel or bring us back, click on them last. However, do not
   # hold this against views with the unique id id/no_id/##.
   for clickview in l.clickable:
+    clickstr = ''
     if 'no_id' in clickview.getUniqueId().lower():
-      clickid = ''
+      clickstr = ''
     else:
-      clickid = clickview.getUniqueId().lower()
+      clickstr = clickview.getUniqueId().lower()
 
     if clickview.getText():
       print 'Text: ' + clickview.getText()
-      clicktext = clickview.getText().lower()
-      if any(x in [clicktext, clickid] for x in NEGATIVE_WORDS):
-        print ('Going to the end of the list b/c of text or ID: ' + clicktext +
-               ' ' + clickid)
-        l.clickable.remove(clickview)
-        l.clickable.append(clickview)
-    elif any(x in clickid for x in NEGATIVE_WORDS):
-      print 'Going to the end of the list b/c of ID: ' + clickid
+      clickstr += ' ' + clickview.getText().lower()
+    if any(x in clickstr for x in NEGATIVE_WORDS):
+      print 'Going to the end of the list b/c of text or ID: ' + clickstr
       l.clickable.remove(clickview)
       l.clickable.append(clickview)
 
@@ -397,7 +553,8 @@ def obtain_curr_layout(activity, package_name, vc_dump, layout_map,
     return layout
   else:
     print 'New layout'
-    new_layout = create_layout(package_name, vc_dump, activity, frag_list)
+    new_layout = create_layout(package_name, device, vc_dump, activity,
+                               frag_list)
     # Make sure we have a valid Layout. This will be false if we get a socket
     # timeout.
     if new_layout.get_name():
@@ -521,7 +678,7 @@ def follow_path_to_layout(path, goal, package_name, device, layout_map,
                                     goal.get_name(), path_to_curr)
       if new_path:
         print 'Back on track -- found new route to ' + goal.get_name()
-        path = new_path
+        path += new_path
       else:
         print 'Stopping here. Could not find a way to ' + goal.get_name()
         return
@@ -540,6 +697,7 @@ def follow_path_to_layout(path, goal, package_name, device, layout_map,
 def crawl_until_exit(vc, device, package_name, layout_map, layout_graph,
                      still_exploring, start_layout, logged_in):
   """Main crawler loop. Evaluates layouts, stores new data, and clicks views."""
+
   print 'Logged in: ' + str(logged_in)
   curr_layout = start_layout
   prev_clicked = ''
@@ -604,86 +762,19 @@ def crawl_until_exit(vc, device, package_name, layout_map, layout_graph,
                                             ['login', 'log_in', 'signin',
                                              'sign_in']))):
               found_login = True
-              print 'Trying to log into Facebook.'
-              # Sometimes touch() doesn't work
-              curr_layout.clickable.remove(click)
-              device.shell('input tap ' + str(click.getX()) +
-                           ' ' + str(click.getY()))
               consec_back_presses = 0
               prev_clicked = click.getUniqueId()
-              time.sleep(10)
-              # Make sure the new screen is loaded by waiting for the dump.
-              perform_vc_dump(vc)
-              activity_str = obtain_focus_and_allow_permissions(device, vc)
-              print activity_str
-              if 'com.facebook.katana' in activity_str:
-                logged_in = True
-                print 'Logged in!'
-                # Because the Facebook authorization dialog is primarily a
-                # WebView, we must click on x, y coordinates of the Continue
-                # button instead of looking at the hierarchy.
-                device.shell('input tap ' + str(int(.5 * MAX_X)) + ' ' +
-                             str(int(.82 * MAX_Y)))
-                consec_back_presses = 0
-                perform_vc_dump(vc)
-                activity_str = obtain_focus_and_allow_permissions(device, vc)
+              logged_in = fb_login(package_name, device, curr_layout, click, vc)
 
-                # Authorize app to post to Facebook (or any other action).
-                num_taps = 0
-                while ('ProxyAuthDialog' in activity_str and
-                       num_taps < MAX_FB_AUTH_TAPS):
-                  print 'Facebook authorization #' + str(num_taps)
-                  device.shell('input tap ' + str(int(.90 * MAX_X)) + ' ' +
-                               str(int(.95 * MAX_Y)))
-                  num_taps += 1
-                  time.sleep(3)
-                  activity_str = obtain_focus_and_allow_permissions(
-                      device, vc)
-              else:
-                print 'Could not log into Facebook.'
-                print (activity_str + ' ' +
-                       str(obtain_frag_list(package_name, device)))
-              break
-            elif (('gplus' in clickid or 'google' in clickid) and
-                  any(s in clickid for s in ['login', 'log_in', 'signin',
-                                             'sign_in'])):
+            elif (click.getClass ==
+                  'com.google.android.gms.common.SignInButton' or
+                  any('google' in x for x in [clickid, clicktext]) or
+                  any('gplus' in x for x in [clickid, clicktext]) or
+                  clickid == 'sign_in_button'):
               found_login = True
-              print 'Trying to log into Google+.'
-              curr_layout.clickable.remove(click)
-              touch(device, click)
               consec_back_presses = 0
               prev_clicked = click.getUniqueId()
-              time.sleep(4)
-              # Make sure the new screen is loaded by waiting for the dump.
-              perform_vc_dump(vc)
-
-              # Some apps want to access contacts to get user information.
-              activity_str = obtain_focus_and_allow_permissions(device, vc)
-
-              print activity_str
-              if 'com.google.android.gms' in activity_str:
-                print 'Logging into G+'
-                # Some apps ask to pick the Google user before logging in.
-                if 'AccountChipAccountPickerActivity' in activity_str:
-                  print 'Selecting user.'
-                  v = vc.findViewById('id/account_profile_picture')
-                  if v:
-                    touch(device, v)
-                    print 'Selected user.'
-                    time.sleep(4)
-                    perform_vc_dump(vc)
-                  activity_str = obtain_focus_and_allow_permissions(
-                      device, vc)
-                  print activity_str
-                if 'GrantCredentialsWithAclActivity' in activity_str:
-                  print 'Granting credentials.'
-                  perform_vc_dump(vc)
-                  v = vc.findViewById('id/accept_button')
-                  if v:
-                    print 'Granting'
-                    touch(device, v)
-                    time.sleep(4)
-              break
+              logged_in = google_login(device, curr_layout, click, vc)
 
         if not found_login:
           c = curr_layout.clickable[0]
@@ -712,13 +803,14 @@ def crawl_until_exit(vc, device, package_name, layout_map, layout_graph,
           num_dumps += 1
 
         if num_dumps == MAX_DUMPS:
+          print 'Could not get a ViewClient dump.'
           break
 
         activity = obtain_activity_name(package_name, device, vc)
         if activity is EXITED_APP:
           activity = return_to_app_activity(package_name, device, vc)
           if activity is EXITED_APP:
-            print 'Clicking back took us out of the app'
+            print 'Clicking back took us out of the app.'
             break
 
         if vc_dump:
@@ -727,7 +819,7 @@ def crawl_until_exit(vc, device, package_name, layout_map, layout_graph,
           if prev_layout.is_duplicate_layout(curr_layout):
             # We have nothing left to click, and the back button doesn't change
             # layouts.
-            print 'Pressing back keeps at the current layout'
+            print 'Pressing back keeps at the current layout.'
             break
           else:
             link_ui_layouts(prev_layout, curr_layout, 'back button',
@@ -797,16 +889,17 @@ def crawl_package(vc, device, serialno, package_name=None):
     print 'Now trying to explore '+  l.get_name()
 
     # Restart the app with its initial screen.
-    subprocess.call([ADB_PATH, '-s', SERIAL_NO, 'shell', 'am force-stop',
-                     package_name])
-    subprocess.call([ADB_PATH, '-s', SERIAL_NO, 'shell', 'monkey', '-p',
-                     package_name, '-c', 'android.intent.category.LAUNCHER',
-                     '1'])
+    device.shell('am force-stop ' + package_name)
+    device.shell('monkey -p ' + package_name +
+                 ' -c android.intent.category.LAUNCHER 1')
+
     time.sleep(5)
 
     activity = obtain_activity_name(package_name, device, vc)
     if activity == EXITED_APP:
+      print 'Could not launch app.'
       return
+
     starting_layout = obtain_curr_layout(activity, package_name, vc_dump,
                                          layout_map, still_exploring, device)
     starting_layout.depth = 0
@@ -827,30 +920,29 @@ def crawl_package(vc, device, serialno, package_name=None):
         still_exploring.pop(l.get_name(), 0)
       activity = obtain_activity_name(package_name, device, vc)
     else:
-      print 'No path to ' + l.get_name() + '. Removing from still_exploring'
+      print 'No path to ' + l.get_name() + '. Removing from still_exploring.'
       still_exploring.pop(l.get_name(), 0)
 
-    if activity == EXITED_APP:
-      break
+    if activity != EXITED_APP:
 
-    vc_dump = perform_vc_dump(vc)
+      vc_dump = perform_vc_dump(vc)
 
-    if vc_dump:
-      curr_layout = obtain_curr_layout(activity, package_name, vc_dump,
-                                       layout_map, still_exploring, device)
-      print 'Wanted ' + l.get_name() + ', at ' + curr_layout.get_name()
+      if vc_dump:
+        curr_layout = obtain_curr_layout(activity, package_name, vc_dump,
+                                         layout_map, still_exploring, device)
+        print 'Wanted ' + l.get_name() + ', at ' + curr_layout.get_name()
 
-      if curr_layout.clickable:
-        # If we made it to our intended Layout, or at least a Layout with
-        # unexplored views, start crawling again.
-        print 'Crawling again'
-        logged_in = crawl_until_exit(vc, device, package_name, layout_map,
-                                     layout_graph, still_exploring, curr_layout,
-                                     logged_in)
-        print ('Done with the crawl. Still ' + str(len(l.clickable)) +
-               ' views to click for this Layout.')
-      else:
-        print 'Nothing left to click for ' + l.get_name()
-        still_exploring.pop(l.get_name(), 0)
+        if curr_layout.clickable:
+          # If we made it to our intended Layout, or at least a Layout with
+          # unexplored views, start crawling again.
+          print 'Crawling again'
+          logged_in = crawl_until_exit(vc, device, package_name, layout_map,
+                                       layout_graph, still_exploring,
+                                       curr_layout, logged_in)
+          print ('Done with the crawl. Still ' + str(len(l.clickable)) +
+                 ' views to click for this Layout.')
+        else:
+          print 'Nothing left to click for ' + l.get_name()
+          still_exploring.pop(l.get_name(), 0)
 
-  print 'No more layouts to crawl'
+  print 'No more layouts to crawl.'

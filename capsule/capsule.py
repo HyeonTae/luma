@@ -148,24 +148,22 @@ if __name__ == '__main__':
         package_name = package.split('/')[-1]
         # Make sure the package is installed on the device by checking it
         # against installed third-party packages.
-        installed_pkgs = subprocess.check_output([ADB_PATH, '-s', serialno,
-                                                  'shell', 'pm',
-                                                  'list packages', '-3'])
+        installed_pkgs = device.shell('pm list packages -3')
         if package_name not in installed_pkgs:
-          print 'Cannot find the package on the device.' + package_name
+          print 'Cannot find the package on the device: ' + package_name
           should_crawl = False
 
       if os.path.exists(os.path.dirname(os.path.abspath(__file__)) + '/data/' +
                         package_name) and not recrawl:
         should_crawl = False
+        print 'Skipping ' + package_name + '; package has already been crawled.'
 
       if should_crawl:
         print 'Crawling ' + package_name
 
         # Launch the app.
-        subprocess.call([ADB_PATH, '-s', serialno, 'shell', 'monkey', '-p',
-                         package_name, '-c', 'android.intent.category.LAUNCHER',
-                         '1'])
+        device.shell('monkey -p ' + package_name +
+                     ' -c android.intent.category.LAUNCHER 1')
         time.sleep(5)
 
         crawlpkg.crawl_package(vc, device, serialno, package_name)
