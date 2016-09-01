@@ -58,7 +58,7 @@
     // Include a %s to substitute the task time.
     "title": "Do something fun for %s minutes",
     "keywords": "usability, ui, app, android",
-    "assignmentDurationInSeconds": 1800,
+    "assignmentDurationInSeconds": 900,
     "rewardDollarsPerMinute": 0.30,
     "autoApprovalDelayInSeconds": 259200,
     "currencyCode": "USD",

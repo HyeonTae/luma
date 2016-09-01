@@ -71,7 +71,7 @@ TurkHitService.prototype.createHit = function(token, taskMinutes, appName,
     return;
   }
 
-  var hitTitle = config.hitTitle.replace(/%s/g, taskMinutes);
+  var hitTitle = config.hit.title.replace(/%s/g, taskMinutes);
   var rewardPrice = taskMinutes * config.hit.rewardDollarsPerMinute;
   var hitHTML = jadeTemplate({
     token: token,

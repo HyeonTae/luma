@@ -112,10 +112,19 @@ PollingService.prototype.allocateTokens = function(unusedDevices) {
     stfService.generateToken(device.serial, TASK_MINS, function(err, tokenObj) {
       if (err) {
         console.error('Error generating token', err);
-        return setTimeout(pollingService.poll, POLL_INTERVAL);
-      }
 
-      tokens.push(tokenObj);
+        // Continue with the rest despite the error.
+        if (unusedDevices.length) {
+          return getToken(unusedDevices.pop());
+        }
+
+        // If we didn't issue tokens, return to polling.
+        if (!tokens.length) {
+          return setTimeout(pollingService.poll, POLL_INTERVAL);
+        }
+      } else {
+        tokens.push(tokenObj);
+      }
 
       if (unusedDevices.length) {
         return getToken(unusedDevices.pop());
@@ -125,6 +134,21 @@ PollingService.prototype.allocateTokens = function(unusedDevices) {
               function done(err) {
                 if (err) {
                   console.error('Error creating hit', err);
+
+                  // Fallback and undo token allocation.
+                  stfService.deleteToken(tk.token, function(err) {
+                    if (err) {
+                      console.error('Error deleting token for bad hit', err);
+                    } else {
+                      console.info('Deleted token for bad HIT');
+                    }
+                  });
+
+                  // Continue creating HITs.
+                  if (tokens.length > 0) {
+                    return createHit(tokens.pop());
+                  }
+
                   return setTimeout(pollingService.poll, POLL_INTERVAL);
                 }
 

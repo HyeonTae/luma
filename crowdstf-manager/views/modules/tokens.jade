@@ -39,7 +39,7 @@
         | {{' '}}minute token{{' '}}
         button.btn.btn-info(ng-click='generateToken(device.serial)') Get
       span(ng-if='device.token && device.tokenStatus === "unused"')
-      = 'Token Allocated'
+        = 'Token Allocated'
 
   h5 Allocated Tokens
   ul(ng-repeat='tokenObj in tokens | filter:{status:"unused"}')

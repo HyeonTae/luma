@@ -8,7 +8,7 @@
 - var xmlns = 'http://mechanicalturk.amazonaws.com/AWSMechanicalTurkDataSchem';
 - xmlns += 'as/2011-11-11/HTMLQuestion.xsd';
 - var bstp = 'https://s3.amazonaws.com/mturk-public/bs30/css/bootstrap.min.css';
-- var logins = logins || {facebook:{}, gmail:{}, twitter:{}};
+- var logins = locals.logins || {facebook:{}, gmail:{}, twitter:{}};
 
 HTMLQuestion(xmlns=xmlns)
   HTMLContent<![CDATA[<!DOCTYPE html>
