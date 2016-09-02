@@ -12,6 +12,8 @@ import subprocess
 import time
 
 from com.dtmilano.android.common import obtainAdbPath
+
+from config import Config
 from layout import Layout
 
 # https://material.google.com/layout/structure.html#structure-system-bars
@@ -50,8 +52,8 @@ MAX_CONSEC_BACK_PRESSES = 10
 MAX_FB_AUTH_TAPS = 5
 MAX_FB_BUG_RESETS = 5
 
-NEGATIVE_WORDS = ['no', 'cancel', 'back', 'negative', 'neg' 'deny', 'previous',
-                  'prev', 'exit', 'delete', 'end', 'remove', 'clear']
+NEGATIVE_WORDS = ['no', 'cancel', 'back', 'neg' 'deny', 'prev', 'exit',
+                  'delete', 'end', 'remove', 'clear', 'reset', 'undo']
 
 
 def extract_between(text, sub1, sub2, nth=1):
@@ -120,13 +122,86 @@ def touch(device, view):
   try:
     (x, y) = view.getXY()
     device.touch(x, y)
-    print('Clicked top left {} {}, ({},{})'.format(view.getUniqueId(),
-                                                   view.getClass(), view.getX(),
-                                                   view.getY()))
+    print('Clicked  {} {}, ({},{})'.format(view.getUniqueId(),
+                                           view.getClass(), view.getX(),
+                                           view.getY()))
   except UnicodeEncodeError:
     print '***Unicode coordinates'
   except TypeError:
     print '***String coordinates'
+
+
+def use_keyboard(prev_clicked, config_data, device, vc):
+  """Type text when the keyboard is visible."""
+
+  print 'Prev clicked: ' + prev_clicked
+  view = vc.findViewById(prev_clicked)
+
+  if not view:
+    # Sometimes when we get to a new Layout, an EditText is already selected.
+    # This means that prev_clicked will refer to a view from a previous Layout.
+    # The currently selected view will be clicked again during our crawl, so do
+    # not enter text now.
+
+    # TODO(afergan): This is just to check which view is selected, but since the
+    # dump takes time, remove this later.
+    vc_dump = perform_vc_dump(vc)
+    for v in vc_dump:
+      if v.isFocused():
+        print 'Focused: ' + v.getUniqueId()
+        break
+
+    perform_press_back(device)
+    return
+
+  # TODO(afergan): The dump does not include information about hints for the
+  # TextView, which can be very useful in the absence of a descriptive view id.
+  # See if there is a way to access this, or add this to our custom build of
+  # AOSP.
+  # https://developer.android.com/reference/android/widget/TextView.html#attr_android:hint)
+
+  # If there is already text in the field, do not add additional text.
+  if view and view.getText():
+    print 'This text field is already populated.'
+    perform_press_back(device)
+    return
+
+  # Check if the id contains any of the words in the [basic info] section of the
+  # config. If any of these fields have been removed, do not type anything.
+  if 'name' in prev_clicked:
+    if any(x in prev_clicked for x in['last', 'sur']):
+      print 'Typing last name ' + config_data.get('last_name', '')
+      device.type(config_data.get('last_name', ''))
+    else:
+      print 'Typing first name ' + config_data.get('first_name', '')
+      device.type(config_data.get('first_name', ''))
+  elif any(x in prev_clicked for x in['email', 'mail', 'address']):
+    print 'Typing email address ' + config_data.get('email', '')
+    device.type(config_data.get('email', ''))
+  elif any(x in prev_clicked for x in['password', 'pw']):
+    print 'Typing password ' + config_data.get('password', '')
+    device.type(config_data.get('password', ''))
+  elif any(x in prev_clicked for x in['zip']):
+    print 'Typing zip code ' + config_data.get('zipcode', '')
+    device.type(config_data.get('zipcode', ''))
+  elif any(x in prev_clicked for x in['phone']):
+    print 'Typing phone number ' + config_data.get('phone_num', '')
+    device.type(config_data.get('phone_num', ''))
+  else:
+    # If the user has added additional fields in the config, check for those.
+    for c in config_data:
+      if any(x in prev_clicked for x in c):
+        device.type(config_data.get(c, ''))
+        break
+    else:
+      print 'Typing default text ' + config_data.get('default', '')
+      device.type(config_data.get('default', ''))
+
+  # TODO(afergan): The enter key can sometimes advance us to the next field or
+  # Layout, but we would have to track that here. For now, just minimize the
+  # keyboard and let the crawler advance us.
+  perform_press_back(device)
+  return
 
 
 def fb_login(package_name, device, curr_layout, click, vc):
@@ -306,9 +381,9 @@ def obtain_focus_and_allow_permissions(device, vc):
     # If the screen is off, turn it on.
     if (device.shell("dumpsys power | grep 'Display Power: state=' | grep -oE "
                      "'(ON|OFF)'") == 'OFF'):
-      device.press('26')  # KEYCODE_POWER
+      device.press('KEYCODE_POWER')
     # Unlock device.
-    device.press('82')  # KEYCODE_MENU
+    device.press('KEYCODE_MENU')
     activity_str = device.shell("dumpsys window windows "
                                 "| grep -E 'mCurrentFocus'")
   return activity_str
@@ -695,7 +770,7 @@ def follow_path_to_layout(path, goal, package_name, device, layout_map,
 
 
 def crawl_until_exit(vc, device, package_name, layout_map, layout_graph,
-                     still_exploring, start_layout, logged_in):
+                     still_exploring, start_layout, logged_in, config_data):
   """Main crawler loop. Evaluates layouts, stores new data, and clicks views."""
 
   print 'Logged in: ' + str(logged_in)
@@ -706,10 +781,6 @@ def crawl_until_exit(vc, device, package_name, layout_map, layout_graph,
   while (len(layout_map) < MAX_LAYOUTS and
          consec_back_presses < MAX_CONSEC_BACK_PRESSES):
 
-    # If last click opened the keyboard, assume we're in the same layout and
-    # just click on the next element. Since opening the keyboard can leave
-    # traces of additional views, don't check if layout is duplicate.
-    # TODO(afergan): Is this a safe assumption?
     if device.isKeyboardShown():
       perform_press_back(device)
 
@@ -739,10 +810,8 @@ def crawl_until_exit(vc, device, package_name, layout_map, layout_graph,
         else:
           layout_graph[prev_name] = {curr_layout.get_name()}
           print 'Adding to set: ' + prev_name + ' ' + curr_layout.get_name()
+          print 'Num of nodes in layout graph: ' + str(len(layout_graph))
 
-        print len(layout_graph)
-        for key, val in layout_graph.iteritems():
-          print key + ' ' + str(val)
       print 'Layout depth: ' + str(curr_layout.depth)
       print 'Num clickable: ' + str(len(curr_layout.clickable))
 
@@ -753,7 +822,6 @@ def crawl_until_exit(vc, device, package_name, layout_map, layout_graph,
             clickid = click.getUniqueId().lower()
             if click.getText():
               clicktext = click.getText().lower()
-              print 'Click text: ' + clicktext
             else:
               clicktext = ''
             if (click.getClass() == 'com.facebook.widget.LoginButton'
@@ -782,6 +850,8 @@ def crawl_until_exit(vc, device, package_name, layout_map, layout_graph,
           consec_back_presses = 0
           prev_clicked = c.getUniqueId()
           curr_layout.clickable.remove(c)
+          if device.isKeyboardShown():
+            use_keyboard(prev_clicked, config_data, device, vc)
 
       else:
         print 'Removing ' + curr_layout.get_name() + ' from still_exploring.'
@@ -846,6 +916,8 @@ def crawl_package(vc, device, serialno, package_name=None):
   still_exploring = {}
   layout_graph = {}
 
+  config_data = Config().data
+
   # Stores if we have logged in during this crawl/session. If the app has
   # previously logged into an app or service (and can skip the authorization
   # process), we will be unable to detect that.
@@ -875,7 +947,7 @@ def crawl_package(vc, device, serialno, package_name=None):
 
   logged_in = crawl_until_exit(vc, device, package_name, layout_map,
                                layout_graph, still_exploring, first_layout,
-                               logged_in)
+                               logged_in, config_data)
 
   # Recrawl Layouts that aren't completely explored.
   while (still_exploring and num_crawls < MAX_CRAWLS and
@@ -938,7 +1010,7 @@ def crawl_package(vc, device, serialno, package_name=None):
           print 'Crawling again'
           logged_in = crawl_until_exit(vc, device, package_name, layout_map,
                                        layout_graph, still_exploring,
-                                       curr_layout, logged_in)
+                                       curr_layout, logged_in, config_data)
           print ('Done with the crawl. Still ' + str(len(l.clickable)) +
                  ' views to click for this Layout.')
         else:

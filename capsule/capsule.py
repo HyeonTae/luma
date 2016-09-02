@@ -97,6 +97,14 @@ if __name__ == '__main__':
     print HELP_MSG
     sys.exit()
 
+    # Lock phone orientation to portrait.
+    # Turn off automatic rotation.
+    device.shell('content insert --uri content://settings/system --bind '
+                 'name:s:accelerometer_rotation --bind value:i:0')
+    # Rotate to portrait mode.
+    device.shell('content insert --uri content://settings/system --bind '
+                 'name:s:user_rotation --bind value:i:0')
+
   # User only specified emulator name or nothing at all.
   if len(sys.argv) <= 2:
     print 'No command line arguments, crawling currently launched app.'

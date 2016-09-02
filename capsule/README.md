@@ -97,6 +97,25 @@ login procedures. Capsule prioritizes clicking on Facebook or Google login
 buttons, so installing/logging into Facebook and logging into a Google account
 allows the program to get beyond login screens.
 
+### Config and Typing in Text Fields
+
+Capsule can automatically fill in text fields according to their Android
+resource ids. Prepopulated fields with logical rules (such as differentiating
+between first and last name and using the zipcode config for views named
+'id/zip' are already located in the [config file](config.ini), but it will also
+check for any fields that the user adds to the config in the extra info section.
+
+If it does not match any of the fields in the config, it will type the text in
+the default field, so delete that field if you do not want text entry.
+
+We recommend personalizing the config, especially since the default email
+address (foo@bar.com) has already been used (or blocked) to create accounts for
+most applications.
+
+To modify the file without Git tracking it, type
+
+``$ git update-index --assume-unchanged <file>``
+
 ## Contributors
 
 We are happy to accept contributions. However, Vanadium does not accept pull
