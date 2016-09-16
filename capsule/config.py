@@ -23,5 +23,6 @@ class Config(object):
     parser = SafeConfigParser()
     parser.read(CONFIG_FILE)
     for section_name in parser.sections():
+      self.data[section_name] = {}
       for name, value in parser.items(section_name):
-        self.data[name] = value
+        self.data[section_name][name] = value

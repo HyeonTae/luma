@@ -114,7 +114,7 @@ most applications.
 
 To modify the file without Git tracking it, type
 
-``$ git update-index --assume-unchanged <file>``
+``$ git update-index --assume-unchanged config.ini``
 
 ## Contributors
 

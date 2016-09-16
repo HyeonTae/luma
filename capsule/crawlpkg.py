@@ -54,6 +54,12 @@ MAX_FB_BUG_RESETS = 5
 
 NEGATIVE_WORDS = ['no', 'cancel', 'back', 'neg' 'deny', 'prev', 'exit',
                   'delete', 'end', 'remove', 'clear', 'reset', 'undo']
+# It's ok if the registered words also include the name of a social network
+# (i.e. "Sign in with Google") and sends that view to the end of the list
+# because the program will still go through the list of all clickable views
+# looking for the social network logins.
+REGISTERED_WORDS = ['sign in', 'log', 'already', 'member']
+END_WORDS = NEGATIVE_WORDS + REGISTERED_WORDS
 
 
 def extract_between(text, sub1, sub2, nth=1):
@@ -166,36 +172,39 @@ def use_keyboard(prev_clicked, config_data, device, vc):
     perform_press_back(device)
     return
 
-  # Check if the id contains any of the words in the [basic info] section of the
+  # Check if the id contains any of the words in the [basic_info] section of the
   # config. If any of these fields have been removed, do not type anything.
+  basic_info = config_data.get('basic_info')
   if 'name' in prev_clicked:
     if any(x in prev_clicked for x in['last', 'sur']):
-      print 'Typing last name ' + config_data.get('last_name', '')
-      device.type(config_data.get('last_name', ''))
+      print 'Typing last name ' + basic_info.get('last_name', '')
+      device.type(basic_info.get('last_name', ''))
+    elif any(x in prev_clicked for x in['user']):
+      print 'Typing username ' + basic_info.get('username', '')
     else:
-      print 'Typing first name ' + config_data.get('first_name', '')
-      device.type(config_data.get('first_name', ''))
+      print 'Typing first name ' + basic_info.get('first_name', '')
+      device.type(basic_info.get('first_name', ''))
   elif any(x in prev_clicked for x in['email', 'mail', 'address']):
-    print 'Typing email address ' + config_data.get('email', '')
-    device.type(config_data.get('email', ''))
+    print 'Typing email address ' + basic_info.get('email', '')
+    device.type(basic_info.get('email', ''))
   elif any(x in prev_clicked for x in['password', 'pw']):
-    print 'Typing password ' + config_data.get('password', '')
-    device.type(config_data.get('password', ''))
+    print 'Typing password ' + basic_info.get('password', '')
+    device.type(basic_info.get('password', ''))
   elif any(x in prev_clicked for x in['zip']):
-    print 'Typing zip code ' + config_data.get('zipcode', '')
-    device.type(config_data.get('zipcode', ''))
+    print 'Typing zip code ' + basic_info.get('zipcode', '')
+    device.type(basic_info.get('zipcode', ''))
   elif any(x in prev_clicked for x in['phone']):
-    print 'Typing phone number ' + config_data.get('phone_num', '')
-    device.type(config_data.get('phone_num', ''))
+    print 'Typing phone number ' + basic_info.get('phone_num', '')
+    device.type(basic_info.get('phone_num', ''))
   else:
     # If the user has added additional fields in the config, check for those.
-    for c in config_data:
+    for c in config_data.get('extra'):
       if any(x in prev_clicked for x in c):
-        device.type(config_data.get(c, ''))
+        device.type(config_data.get('extra').get(c, ''))
         break
     else:
-      print 'Typing default text ' + config_data.get('default', '')
-      device.type(config_data.get('default', ''))
+      print 'Typing default text ' + basic_info.get('default', '')
+      device.type(basic_info.get('default', ''))
 
   # TODO(afergan): The enter key can sometimes advance us to the next field or
   # Layout, but we would have to track that here. For now, just minimize the
@@ -575,7 +584,7 @@ def create_layout(package_name, device, vc_dump, activity, frag_list):
     if clickview.getText():
       print 'Text: ' + clickview.getText()
       clickstr += ' ' + clickview.getText().lower()
-    if any(x in clickstr for x in NEGATIVE_WORDS):
+    if any(x in clickstr for x in END_WORDS):
       print 'Going to the end of the list b/c of text or ID: ' + clickstr
       l.clickable.remove(clickview)
       l.clickable.append(clickview)
@@ -917,6 +926,23 @@ def crawl_package(vc, device, serialno, package_name=None):
   layout_graph = {}
 
   config_data = Config().data
+  settings = config_data.get('settings')
+
+  if settings:
+    if settings.get('lock_portrait_mode'):
+      # TODO(afergan): Is this best to do after each app (in case an app changes
+      # the phone's settings) or just run when we start the program?
+
+      # Lock phone orientation to portrait.
+      # Turn off automatic rotation.
+      device.shell('content insert --uri content://settings/system --bind '
+                   'name:s:accelerometer_rotation --bind value:i:0')
+      # Rotate to portrait mode.
+      device.shell('content insert --uri content://settings/system --bind '
+                   'name:s:user_rotation --bind value:i:0')
+    if settings.get('clear_notifications'):
+      # Clear all notifications.
+      device.shell('su 0 service call notification 1')
 
   # Stores if we have logged in during this crawl/session. If the app has
   # previously logged into an app or service (and can skip the authorization
@@ -975,6 +1001,7 @@ def crawl_package(vc, device, serialno, package_name=None):
     starting_layout = obtain_curr_layout(activity, package_name, vc_dump,
                                          layout_map, still_exploring, device)
     starting_layout.depth = 0
+    print 'Starting layout: ' + starting_layout.get_name()
     path = find_shortest_path(layout_graph, starting_layout.get_name(),
                               l.get_name())
     if path:
