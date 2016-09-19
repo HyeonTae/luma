@@ -38,7 +38,10 @@ class Layout(object):
       return ''
 
   def num_views(self):
-    return len(self.hierarchy)
+    if self.hierarchy:
+      return len(self.hierarchy)
+    else:
+      return 0
 
   def is_duplicate(self, activity, frag_list, hierarchy):
     """Determines if the passed-in information is identical to this Layout."""
@@ -51,8 +54,11 @@ class Layout(object):
         Counter(self.frag_list) != Counter(frag_list)):
       return False
 
-    if self.num_views() != len(hierarchy):
-      return False
+    if hierarchy:
+      if self.num_views() != len(hierarchy):
+        return False
+    else:
+      return self.num_views() == 0
 
     hierarchy_ids = [h['uniqueId'] for h in self.hierarchy]
     layout_ids = [h['uniqueId'] for h in hierarchy]
@@ -65,8 +71,11 @@ class Layout(object):
         Counter(self.frag_list) != Counter(other_layout.frag_list)):
       return False
 
-    if self.num_views() != len(other_layout.hierarchy):
-      return False
+    if other_layout.hierarchy:
+      if self.num_views() != len(other_layout.hierarchy):
+        return False
+    else:
+      return self.num_views() == 0
 
     hierarchy_ids = [h['uniqueId'] for h in self.hierarchy]
     other_layout_ids = [ov['uniqueId'] for ov in other_layout.hierarchy]
